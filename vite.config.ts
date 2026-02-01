@@ -1,29 +1,39 @@
 
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-    sourcemap: false,
-    // Naikkan batas peringatan menjadi 2MB agar terminal lebih bersih
-    chunkSizeWarningLimit: 2000, 
-    rollupOptions: {
+export default defineConfig(({ mode }) => {
+  // Fix: Access cwd() by casting process to any to avoid "Property 'cwd' does not exist on type 'Process'" error in environments with limited Process type definitions
+  const env = loadEnv(mode, (process as any).cwd(), '');
+  return {
+    plugins: [react()],
+    define: {
+      'process.env': {
+        API_KEY: JSON.stringify(env.API_KEY || process.env.API_KEY),
+        NODE_ENV: JSON.stringify(mode)
+      }
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+      chunkSizeWarningLimit: 2000,
+      rollupOptions: {
         output: {
-            // Memisahkan library besar (React, Lucide, dll) ke file terpisah (vendor.js)
-            // agar browser bisa melakukan cache dengan lebih baik
-            manualChunks: {
-                vendor: ['react', 'react-dom'],
-                ui: ['lucide-react'],
-                ai: ['@google/genai']
-            }
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            ui: ['lucide-react']
+          }
         }
+      }
+    },
+    server: {
+      port: 3000,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:5000',
+          changeOrigin: true
+        }
+      }
     }
-  },
-  server: {
-    port: 3000,
-  }
+  };
 });
