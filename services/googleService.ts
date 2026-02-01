@@ -1,18 +1,21 @@
 
 import { ReleaseData, Contract } from '../types';
 
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('google_drive_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 export const checkSystemHealth = async () => {
   try {
     const response = await fetch('/api/health-check', {
-        headers: { 'Accept': 'application/json' },
+        headers: { 
+            'Accept': 'application/json',
+            ...getAuthHeaders()
+        },
         cache: 'no-store'
     });
     
-    const contentType = response.headers.get("content-type");
-    if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Server mengirim balasan HTML, bukan JSON. Ini biasanya karena kesalahan routing atau .htaccess di Plesk.");
-    }
-
     if (!response.ok) {
         throw new Error(`Server merespon dengan status ${response.status}`);
     }
@@ -41,6 +44,7 @@ export const uploadReleaseToGoogle = async (data: ReleaseData): Promise<{ succes
 
   const response = await fetch('/api/upload-release', {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData
   });
 
@@ -54,12 +58,10 @@ export const uploadReleaseToGoogle = async (data: ReleaseData): Promise<{ succes
 export const uploadContractToGoogle = async (data: Contract): Promise<{ success: boolean; message: string }> => {
     const formData = new FormData();
     
-    // Append files
     if (data.ktpFile) formData.append('ktpFile', data.ktpFile);
     if (data.npwpFile) formData.append('npwpFile', data.npwpFile);
     if (data.signatureFile) formData.append('signatureFile', data.signatureFile);
     
-    // Append metadata as stringified JSON
     formData.append('metadata', JSON.stringify({
         contractNumber: data.contractNumber,
         artistName: data.artistName,
@@ -72,7 +74,8 @@ export const uploadContractToGoogle = async (data: Contract): Promise<{ success:
 
     const response = await fetch('/api/contracts', {
         method: 'POST',
-        body: formData // Use FormData for multi-part upload
+        headers: getAuthHeaders(),
+        body: formData
     });
     
     if (!response.ok) {
@@ -86,7 +89,10 @@ export const uploadContractToGoogle = async (data: Contract): Promise<{ success:
 export const updateContractStatus = async (id: string, status: string): Promise<void> => {
     const response = await fetch(`/api/contracts/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            ...getAuthHeaders()
+        },
         body: JSON.stringify({ status })
     });
     if (!response.ok) {

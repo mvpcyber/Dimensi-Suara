@@ -19,10 +19,8 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// --- MULTER SETUP (Memory storage for easy piping to Drive) ---
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- DATABASE CONNECTION ---
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     user: process.env.DB_USER || 'dimensi_suara_db',
@@ -36,8 +34,19 @@ const dbConfig = {
 
 const db = mysql.createPool(dbConfig);
 
-// --- GOOGLE AUTH ---
-async function getGoogleAuth() {
+// --- IMPROVED GOOGLE AUTH (Supports User OAuth2 Token) ---
+async function getDriveClient(req) {
+    const authHeader = req.headers.authorization;
+    
+    // Priority 1: User OAuth2 Access Token from Frontend
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const oauth2Client = new google.auth.OAuth2();
+        oauth2Client.setCredentials({ access_token: token });
+        return google.drive({ version: 'v3', auth: oauth2Client });
+    }
+
+    // Priority 2: Service Account (Fallback)
     const possiblePaths = [
         path.join(__dirname, 'service-account.json'),
         path.join(process.cwd(), 'service-account.json'),
@@ -45,31 +54,26 @@ async function getGoogleAuth() {
     ];
     
     let credentials;
-    let foundPath = 'Tidak ditemukan';
-
     for (const filePath of possiblePaths) {
         if (fs.existsSync(filePath)) {
             try {
                 credentials = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                foundPath = filePath;
                 break;
-            } catch (e) {
-                console.error(`Gagal memproses JSON di ${filePath}:`, e.message);
-            }
+            } catch (e) {}
         }
     }
 
-    if (!credentials) return { auth: null, pathChecked: possiblePaths.join(' | ') };
+    if (credentials) {
+        const auth = new google.auth.GoogleAuth({ 
+            credentials, 
+            scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'] 
+        });
+        return google.drive({ version: 'v3', auth });
+    }
 
-    const auth = new google.auth.GoogleAuth({ 
-        credentials, 
-        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'] 
-    });
-    
-    return { auth, foundPath };
+    return null;
 }
 
-// Helper to pipe buffer to Drive
 const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
     const media = {
         mimeType: mimeType,
@@ -81,7 +85,8 @@ const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
             parents: [parentId]
         },
         media: media,
-        fields: 'id'
+        fields: 'id',
+        supportsAllDrives: true
     });
     return response.data.id;
 };
@@ -90,121 +95,88 @@ const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
 
 app.get('/api/health-check', async (req, res) => {
     const status = {
-        database: { connected: false, message: 'Menghubungkan...' },
-        googleDrive: { connected: false, message: 'Menunggu...', email: '', suggestion: '' },
-        fileSystem: { serviceAccountExists: false, pathChecked: '' },
+        database: { connected: false, message: '' },
+        googleDrive: { connected: false, message: '' },
         serverTime: new Date().toISOString()
     };
 
     try {
-        const [rows] = await db.query('SELECT 1 as ok');
+        await db.query('SELECT 1');
         status.database.connected = true;
-        status.database.message = `Koneksi MySQL Berhasil (127.0.0.1)`;
+        status.database.message = "Database OK";
     } catch (err) {
-        status.database.message = `MySQL Error: ${err.message}`;
+        status.database.message = err.message;
     }
 
-    const { auth, foundPath } = await getGoogleAuth();
-    status.fileSystem.serviceAccountExists = !!auth;
-    status.fileSystem.pathChecked = foundPath;
-
-    if (auth) {
-        try {
-            const drive = google.drive({ version: 'v3', auth });
-            const creds = await auth.getCredentials();
-            status.googleDrive.email = creds.client_email;
+    try {
+        const drive = await getDriveClient(req);
+        if (drive) {
             const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
-            
             if (folderId) {
-                try {
-                    const folder = await drive.files.get({ fileId: folderId, fields: 'id, name' });
-                    status.googleDrive.connected = true;
-                    status.googleDrive.message = `Terhubung ke Folder Utama: "${folder.data.name}"`;
-                } catch (driveErr) {
-                    status.googleDrive.message = `Drive API Error: ${driveErr.message}`;
-                }
+                const folder = await drive.files.get({ fileId: folderId, fields: 'id, name', supportsAllDrives: true });
+                status.googleDrive.connected = true;
+                status.googleDrive.message = `Folder: "${folder.data.name}"`;
             } else {
-                status.googleDrive.message = 'ID Folder belum diatur.';
+                status.googleDrive.message = "Folder ID Kosong";
             }
-        } catch (err) {
-            status.googleDrive.message = `Auth Error: ${err.message}`;
+        } else {
+            status.googleDrive.message = "Drive Client Gagal";
         }
-    } else {
-        status.googleDrive.message = 'File service-account.json tidak ditemukan.';
+    } catch (err) {
+        status.googleDrive.message = err.message;
     }
     res.json(status);
 });
 
-// Contracts: Create with File Upload
 app.post('/api/contracts', upload.fields([
     { name: 'ktpFile', maxCount: 1 },
     { name: 'npwpFile', maxCount: 1 },
     { name: 'signatureFile', maxCount: 1 }
 ]), async (req, res) => {
+    let driveFolderId = null;
     try {
         const metadata = JSON.parse(req.body.metadata);
         const { contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status } = metadata;
         
-        const { auth } = await getGoogleAuth();
-        let driveFolderId = null;
-
-        if (auth) {
-            const drive = google.drive({ version: 'v3', auth });
+        const drive = await getDriveClient(req);
+        if (drive) {
             const parentId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
-
             if (parentId) {
-                // 1. Create Sub-folder for this contract
                 const folderResponse = await drive.files.create({
                     requestBody: {
                         name: contractNumber,
                         mimeType: 'application/vnd.google-apps.folder',
                         parents: [parentId]
                     },
-                    fields: 'id'
+                    fields: 'id',
+                    supportsAllDrives: true
                 });
                 driveFolderId = folderResponse.data.id;
 
-                // 2. Upload Files to that folder
                 if (req.files['ktpFile']) {
-                    const file = req.files['ktpFile'][0];
-                    await uploadToDrive(drive, file.buffer, `KTP-${contractNumber}.jpg`, file.mimetype, driveFolderId);
+                    await uploadToDrive(drive, req.files['ktpFile'][0].buffer, `KTP-${contractNumber}.jpg`, 'image/jpeg', driveFolderId);
                 }
                 if (req.files['npwpFile']) {
-                    const file = req.files['npwpFile'][0];
-                    await uploadToDrive(drive, file.buffer, `NPWP-${contractNumber}.jpg`, file.mimetype, driveFolderId);
+                    await uploadToDrive(drive, req.files['npwpFile'][0].buffer, `NPWP-${contractNumber}.jpg`, 'image/jpeg', driveFolderId);
                 }
                 if (req.files['signatureFile']) {
-                    const file = req.files['signatureFile'][0];
-                    await uploadToDrive(drive, file.buffer, `Signature-${contractNumber}.jpg`, file.mimetype, driveFolderId);
+                    await uploadToDrive(drive, req.files['signatureFile'][0].buffer, `Signature-${contractNumber}.jpg`, 'image/jpeg', driveFolderId);
                 }
             }
         }
 
-        // 3. Save to Database
         const sql = `INSERT INTO contracts 
             (contract_number, artist_name, start_date, end_date, duration_years, royalty_rate, status, drive_folder_id) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
         
-        const values = [
-            contractNumber, 
-            artistName, 
-            startDate, 
-            endDate, 
-            durationYears, 
-            royaltyRate, 
-            status || 'Pending',
-            driveFolderId
-        ];
-
-        const [result] = await db.query(sql, values);
-        res.status(201).json({ success: true, id: result.insertId, message: "Kontrak dan file berhasil disimpan." });
+        await db.query(sql, [contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status || 'Pending', driveFolderId]);
+        res.status(201).json({ success: true, message: "Berhasil disimpan ke Drive & DB." });
     } catch (err) {
-        console.error("Database/Drive Error:", err);
-        res.status(500).json({ success: false, error: "Gagal menyimpan: " + err.message });
+        console.error("Critical Upload Error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Contracts: Get All
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -218,9 +190,8 @@ app.patch('/api/contracts/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        const sql = `UPDATE contracts SET status = ? WHERE id = ?`;
-        const [result] = await db.query(sql, [status, id]);
-        res.json({ success: true, message: "Status kontrak berhasil diperbarui." });
+        await db.query('UPDATE contracts SET status = ? WHERE id = ?', [status, id]);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -228,9 +199,8 @@ app.patch('/api/contracts/:id', async (req, res) => {
 
 app.delete('/api/contracts/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-        await db.query('DELETE FROM contracts WHERE id = ?', [id]);
-        res.json({ success: true, message: "Kontrak dihapus." });
+        await db.query('DELETE FROM contracts WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -247,19 +217,9 @@ app.get('/api/releases', async (req, res) => {
 
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
-
 app.get('*', (req, res) => {
-    if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: `API endpoint ${req.path} tidak ditemukan.` });
-    }
-    const indexPath = path.join(distPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-        res.sendFile(indexPath);
-    } else {
-        res.status(404).send('Build frontend tidak ditemukan.');
-    }
+    if (req.path.startsWith('/api')) return res.status(404).json({ error: "Not Found" });
+    res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server berjalan di port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
