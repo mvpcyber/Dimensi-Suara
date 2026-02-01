@@ -12,14 +12,23 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
   const [newAgg, setNewAgg] = useState('');
   const [healthStatus, setHealthStatus] = useState<any>(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const runHealthCheck = async () => {
     setIsChecking(true);
+    setErrorMessage(null);
     try {
         const status = await checkSystemHealth();
         setHealthStatus(status);
-    } catch (err) {
+    } catch (err: any) {
         console.error(err);
+        setErrorMessage(err.message || "Gagal menghubungi server API.");
+        // Reset status to show error states
+        setHealthStatus({
+            database: { connected: false, message: 'Server Tidak Merespon' },
+            googleDrive: { connected: false, message: 'API Off' },
+            fileSystem: { serviceAccountExists: false }
+        });
     } finally {
         setIsChecking(false);
     }
@@ -65,6 +74,13 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                 Refresh Status
             </button>
        </div>
+
+       {errorMessage && (
+           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700">
+               <AlertTriangle size={20} />
+               <div className="text-sm font-bold">{errorMessage}</div>
+           </div>
+       )}
 
        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* SYSTEM HEALTH PANEL */}
@@ -146,7 +162,7 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                                 <p className="text-xs text-slate-500 mt-1">
                                     {healthStatus?.fileSystem.serviceAccountExists 
                                         ? 'File kredensial terdeteksi di server.' 
-                                        : 'File service-account.json tidak ditemukan di folder utama server.'}
+                                        : `File tidak ditemukan. Lokasi pengecekan: ${healthStatus?.fileSystem.pathChecked || 'Root'}`}
                                 </p>
                             </div>
                         </div>
