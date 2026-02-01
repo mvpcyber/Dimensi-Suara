@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Music4, User, Lock, ArrowRight, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 interface Props {
-  onLogin: (username: string) => void;
+  onLogin: (user: any) => void;
 }
 
 export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
@@ -13,30 +13,37 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Simulate network delay for better UX
-    setTimeout(() => {
-      const isValidAdmin = (username === 'admin' && password === 'rackajuragandracin');
-      const isValidUser2 = (username === 'fachry' && password === 'bangbens');
-
-      if (isValidAdmin || isValidUser2) {
-        onLogin(username);
-      } else {
-        setError('Username atau Password salah.');
+    try {
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            localStorage.setItem('cms_token', data.token);
+            onLogin(data.user);
+        } else {
+            setError(data.error || 'Login gagal.');
+        }
+    } catch (err) {
+        setError('Terjadi kesalahan koneksi server.');
+    } finally {
         setIsLoading(false);
-      }
-    }, 800);
+    }
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 p-4">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl shadow-blue-900/10 border border-white p-8 md:p-10 animate-fade-in-up">
         
-        {/* Logo Section */}
         <div className="text-center mb-10">
           <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg shadow-blue-500/30">
             <Music4 size={32} />
@@ -45,7 +52,6 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
           <p className="text-slate-500 text-sm mt-1">Sign in to manage your music distribution</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleLogin} className="space-y-6">
           {error && (
             <div className="bg-red-50 text-red-600 text-sm p-4 rounded-xl flex items-center gap-2 border border-red-100 animate-pulse">

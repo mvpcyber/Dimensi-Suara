@@ -1,11 +1,11 @@
 
 import React from 'react';
-import { PlusCircle, ListMusic, Music4, Settings, LayoutDashboard, BarChart3, FileSignature } from 'lucide-react';
+import { PlusCircle, ListMusic, Music4, Settings, LayoutDashboard, BarChart3, FileSignature, Users } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
   onNavigate: (tab: string) => void;
-  currentUser: string;
+  currentUser: { username: string; role: string };
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onNavigate, currentUser }) => {
@@ -79,59 +79,64 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onNavigate, current
           </ul>
         </div>
 
-        {/* Kontrak Menu */}
-        <div>
-          <h3 className="px-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-            Kontrak
-          </h3>
-          <ul className="space-y-2">
-            <li>
-              <button
-                onClick={() => onNavigate('CONTRACT_NEW')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
-                  ${activeTab === 'CONTRACT_NEW' 
-                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
-                    : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
-              >
-                <PlusCircle size={20} className={activeTab === 'CONTRACT_NEW' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
-                Kontrak Baru
-              </button>
-            </li>
-            <li>
-              <button
-                onClick={() => onNavigate('CONTRACT_ALL')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
-                  ${activeTab === 'CONTRACT_ALL' 
-                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
-                    : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
-              >
-                <FileSignature size={20} className={activeTab === 'CONTRACT_ALL' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
-                Semua Kontrak
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        {/* Settings */}
-        <div>
-          <h3 className="px-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
-            Pengaturan
-          </h3>
-          <ul className="space-y-2">
-            <li>
-              <button 
-                onClick={() => onNavigate('SETTINGS')}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
-                  ${activeTab === 'SETTINGS' 
-                    ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
-                    : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
-              >
-                <Settings size={20} className={activeTab === 'SETTINGS' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
-                Settings
-              </button>
-            </li>
-          </ul>
-        </div>
+        {/* Kontrak Menu (Admin Only) */}
+        {currentUser.role === 'Admin' && (
+          <div>
+            <h3 className="px-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">
+              Admin Area
+            </h3>
+            <ul className="space-y-2">
+              <li>
+                <button
+                  onClick={() => onNavigate('USERS')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
+                    ${activeTab === 'USERS' 
+                      ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
+                      : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
+                >
+                  <Users size={20} className={activeTab === 'USERS' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
+                  User Management
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onNavigate('CONTRACT_NEW')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
+                    ${activeTab === 'CONTRACT_NEW' 
+                      ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
+                      : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
+                >
+                  <PlusCircle size={20} className={activeTab === 'CONTRACT_NEW' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
+                  Kontrak Baru
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => onNavigate('CONTRACT_ALL')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
+                    ${activeTab === 'CONTRACT_ALL' 
+                      ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
+                      : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
+                >
+                  <FileSignature size={20} className={activeTab === 'CONTRACT_ALL' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
+                  Semua Kontrak
+                </button>
+              </li>
+              <li>
+                <button 
+                  onClick={() => onNavigate('SETTINGS')}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group font-medium text-sm
+                    ${activeTab === 'SETTINGS' 
+                      ? 'bg-blue-50 text-blue-600 shadow-sm ring-1 ring-blue-100' 
+                      : 'text-slate-600 hover:bg-gray-50 hover:text-slate-900'}`}
+                >
+                  <Settings size={20} className={activeTab === 'SETTINGS' ? 'text-blue-500' : 'text-slate-400 group-hover:text-slate-600'} />
+                  Settings
+                </button>
+              </li>
+            </ul>
+          </div>
+        )}
       </nav>
     </aside>
   );

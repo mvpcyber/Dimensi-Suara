@@ -10,15 +10,16 @@ import { Statistics } from './screens/Statistics';
 import { Contracts } from './screens/Contracts';
 import { Settings } from './screens/Settings';
 import { LoginScreen } from './screens/LoginScreen'; 
+import { UserManagement } from './screens/UserManagement'; // New Screen
 import { ReleaseDetailModal } from './components/ReleaseDetailModal';
 import { ReleaseType, ReleaseData, Contract } from './types';
-import { Menu, Bell, User, LogOut, AlertTriangle, Loader2 } from 'lucide-react';
+import { Menu, LogOut, Loader2 } from 'lucide-react';
 import { getAllReleases } from './services/googleService';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [currentUser, setCurrentUser] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<any>(null); // Object: { username, role, fullName }
   const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
   
   const [showLogoutDialog, setShowLogoutDialog] = useState<boolean>(false);
@@ -34,7 +35,6 @@ const App: React.FC = () => {
   const [editingRelease, setEditingRelease] = useState<ReleaseData | null>(null); 
   const [viewingRelease, setViewingRelease] = useState<ReleaseData | null>(null); 
 
-  // Fetch data dari Database
   const refreshData = async () => {
     if (!isAuthenticated) return;
     setIsLoadingData(true);
@@ -42,37 +42,39 @@ const App: React.FC = () => {
         const releases = await getAllReleases();
         setAllReleases(releases);
         
-        const contractRes = await fetch('/api/contracts');
-        if (contractRes.ok) {
-            const data = await contractRes.json();
-            // PENTING: Map data agar tidak crash di komponen Contracts
-            const mappedContracts: Contract[] = data.map((item: any) => ({
-                id: item.id.toString(),
-                contractNumber: item.contract_number,
-                artistName: item.artist_name,
-                startDate: item.start_date ? item.start_date.split('T')[0] : '',
-                endDate: item.end_date ? item.end_date.split('T')[0] : '',
-                durationYears: item.duration_years,
-                royaltyRate: item.royalty_rate,
-                status: item.status,
-                createdDate: item.created_at ? item.created_at.split('T')[0] : '',
-                ktpFile: null, npwpFile: null, signatureFile: null
-            }));
-            setAllContracts(mappedContracts);
+        // Hanya Admin yang bisa lihat kontrak
+        if (currentUser?.role === 'Admin') {
+            const contractRes = await fetch('/api/contracts');
+            if (contractRes.ok) {
+                const data = await contractRes.json();
+                const mappedContracts: Contract[] = data.map((item: any) => ({
+                    id: item.id.toString(),
+                    contractNumber: item.contract_number,
+                    artistName: item.artist_name,
+                    startDate: item.start_date ? item.start_date.split('T')[0] : '',
+                    endDate: item.end_date ? item.end_date.split('T')[0] : '',
+                    durationYears: item.duration_years,
+                    royaltyRate: item.royalty_rate,
+                    status: item.status,
+                    createdDate: item.created_at ? item.created_at.split('T')[0] : '',
+                    ktpFile: null, npwpFile: null, signatureFile: null
+                }));
+                setAllContracts(mappedContracts);
+            }
         }
     } catch (err) {
-        console.error("Gagal memuat data dari database:", err);
+        console.error("Gagal memuat data:", err);
     } finally {
         setIsLoadingData(false);
     }
   };
 
   useEffect(() => {
-    const storedAuth = localStorage.getItem('cms_auth');
-    const storedUser = localStorage.getItem('cms_user');
-    if (storedAuth === 'true') {
+    const token = localStorage.getItem('cms_token');
+    const storedUser = localStorage.getItem('cms_user_data');
+    if (token && storedUser) {
       setIsAuthenticated(true);
-      if (storedUser) setCurrentUser(storedUser);
+      setCurrentUser(JSON.parse(storedUser));
     }
     setIsAuthChecking(false);
   }, []);
@@ -81,20 +83,20 @@ const App: React.FC = () => {
     if (isAuthenticated) {
         refreshData();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser]); // Refresh if user changes
 
-  const handleLogin = (username: string) => {
-    localStorage.setItem('cms_auth', 'true');
-    localStorage.setItem('cms_user', username);
-    setCurrentUser(username);
+  const handleLogin = (user: any) => {
+    localStorage.setItem('cms_user_data', JSON.stringify(user));
+    setCurrentUser(user);
     setIsAuthenticated(true);
   };
 
   const confirmLogout = () => {
-    localStorage.removeItem('cms_auth');
-    localStorage.removeItem('cms_user');
+    localStorage.removeItem('cms_token');
+    localStorage.removeItem('cms_user_data');
     setIsAuthenticated(false);
     setShowLogoutDialog(false);
+    setCurrentUser(null);
   };
 
   const handleSidebarNavigate = (tab: string) => {
@@ -131,7 +133,10 @@ const App: React.FC = () => {
       <main className="flex-1 w-full md:ml-0 overflow-x-hidden min-h-screen flex flex-col relative">
         <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-white/50 px-6 py-4 flex items-center justify-between shadow-sm">
             <h2 className="text-xl font-bold text-slate-800 tracking-tight hidden md:block">Dimensi Suara CMS</h2>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
+                <span className="text-sm font-medium text-slate-500 hidden sm:block">
+                    Hi, <span className="text-blue-600 font-bold">{currentUser?.fullName || currentUser?.username}</span>
+                </span>
                 {isLoadingData && <Loader2 className="animate-spin text-blue-500" size={18} />}
                 <button onClick={() => setShowLogoutDialog(true)} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold text-xs transition-colors">
                     <LogOut size={16} /> Logout
@@ -142,7 +147,11 @@ const App: React.FC = () => {
         <div className="flex-1">
           {activeTab === 'DASHBOARD' && <Dashboard releases={allReleases} onViewRelease={setViewingRelease} onNavigateToAll={() => setActiveTab('ALL')} />}
           {activeTab === 'STATISTICS' && <Statistics releases={allReleases} />}
-          {activeTab.startsWith('CONTRACT') && <Contracts activeTab={activeTab} contracts={allContracts} setContracts={setAllContracts} />}
+          {activeTab === 'USERS' && currentUser.role === 'Admin' && <UserManagement />}
+          
+          {/* Contract Tabs (Admin Only) */}
+          {activeTab.startsWith('CONTRACT') && currentUser.role === 'Admin' && <Contracts activeTab={activeTab} contracts={allContracts} setContracts={setAllContracts} />}
+          
           {activeTab === 'NEW' && (
             <>
               {wizardStep === 'SELECTION' && <ReleaseTypeSelection onSelect={(t) => {setReleaseType(t); setWizardStep('WIZARD');}} />}
@@ -151,7 +160,7 @@ const App: React.FC = () => {
           )}
           {activeTab === 'ALL' && !viewingRelease && <AllReleases releases={allReleases} onViewRelease={setViewingRelease} onUpdateRelease={refreshData} availableAggregators={aggregators} />}
           {viewingRelease && <ReleaseDetailModal release={viewingRelease} isOpen={true} onClose={() => setViewingRelease(null)} onUpdate={refreshData} availableAggregators={aggregators} />}
-          {activeTab === 'SETTINGS' && <Settings aggregators={aggregators} setAggregators={setAggregators} />}
+          {activeTab === 'SETTINGS' && currentUser.role === 'Admin' && <Settings aggregators={aggregators} setAggregators={setAggregators} />}
         </div>
         <Footer />
         

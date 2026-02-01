@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, RefreshCw, HardDrive } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, RefreshCw, HardDrive, Shield, Lock, UserPlus, Server } from 'lucide-react';
 import { checkSystemHealth } from '../services/googleService';
 
 interface Props {
@@ -8,11 +8,21 @@ interface Props {
   setAggregators: (list: string[]) => void;
 }
 
+type SettingsTab = 'SYSTEM' | 'AGGREGATOR' | 'ADMINISTRATOR';
+
 export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('SYSTEM');
   const [newAgg, setNewAgg] = useState('');
+  
+  // System State
   const [healthStatus, setHealthStatus] = useState<any>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Admin State
+  const [admins, setAdmins] = useState<any[]>([]);
+  const [newAdmin, setNewAdmin] = useState({ username: '', email: '', password: '', fullName: '' });
+  const [isAdminLoading, setIsAdminLoading] = useState(false);
 
   const runHealthCheck = async () => {
     setIsChecking(true);
@@ -21,8 +31,7 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
         const status = await checkSystemHealth();
         setHealthStatus(status);
     } catch (err: any) {
-        console.error("Health Check Error:", err);
-        setErrorMessage(`Error: ${err.message}. Pastikan Backend (Node.js) sedang berjalan.`);
+        setErrorMessage(`Error: ${err.message}. Backend mungkin down.`);
         setHealthStatus({
             database: { connected: false, message: 'Server Tidak Merespon' },
             storage: { connected: false, message: 'Offline' },
@@ -32,121 +41,238 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
     }
   };
 
-  useEffect(() => {
-    runHealthCheck();
-  }, []);
+  const fetchAdmins = async () => {
+      try {
+          const res = await fetch('/api/admins');
+          const data = await res.json();
+          if(Array.isArray(data)) setAdmins(data);
+      } catch (e) { console.error(e); }
+  };
 
-  const handleAdd = () => {
+  const handleAddAdmin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsAdminLoading(true);
+      try {
+          const res = await fetch('/api/admins', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify(newAdmin)
+          });
+          const result = await res.json();
+          if (result.success) {
+              setNewAdmin({ username: '', email: '', password: '', fullName: '' });
+              fetchAdmins();
+              alert("Admin berhasil ditambahkan!");
+          } else {
+              alert(result.error);
+          }
+      } catch (err) {
+          alert("Gagal menambahkan admin.");
+      } finally {
+          setIsAdminLoading(false);
+      }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'SYSTEM') runHealthCheck();
+    if (activeTab === 'ADMINISTRATOR') fetchAdmins();
+  }, [activeTab]);
+
+  const handleAddAggregator = () => {
     if (newAgg.trim()) {
         setAggregators([...aggregators, newAgg.trim()]);
         setNewAgg('');
     }
   };
 
-  const handleRemove = (index: number) => {
-    const newList = aggregators.filter((_, i) => i !== index);
-    setAggregators(newList);
+  const handleRemoveAggregator = (index: number) => {
+    setAggregators(aggregators.filter((_, i) => i !== index));
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto min-h-screen">
-       <div className="mb-8 border-b border-gray-200 pb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-                <h1 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-                    <SettingsIcon size={32} className="text-slate-400" />
-                    Settings
-                </h1>
-                <p className="text-slate-500 mt-1">Konfigurasi database dan status server (Local Storage).</p>
-            </div>
-            <button 
-                onClick={runHealthCheck}
-                disabled={isChecking}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition-all shadow-sm"
-            >
-                {isChecking ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                Refresh Status
-            </button>
+    <div className="p-4 md:p-8 max-w-6xl mx-auto min-h-screen">
+       <div className="mb-8">
+            <h1 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
+                <SettingsIcon size={32} className="text-slate-400" />
+                Settings
+            </h1>
+            <p className="text-slate-500 mt-1">Konfigurasi sistem, partner distribusi, dan hak akses.</p>
        </div>
 
-       {errorMessage && (
-           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 shadow-sm">
-               <XCircle size={20} className="shrink-0" />
-               <div className="text-xs font-bold leading-relaxed">{errorMessage}</div>
-           </div>
-       )}
-
-       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-8">
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                        <Activity className="text-blue-500" size={24} />
-                        <h2 className="text-xl font-bold text-slate-800">System Health Status</h2>
-                    </div>
-
-                    <div className="space-y-6">
-                        {/* Database Status */}
-                        <div className="flex items-start gap-4 p-4 rounded-xl border bg-slate-50/50">
-                            {healthStatus?.database?.connected ? (
-                                <CheckCircle className="text-green-500 mt-1" size={20} />
-                            ) : (
-                                <XCircle className="text-red-500 mt-1" size={20} />
-                            )}
-                            <div className="flex-1">
-                                <h4 className="font-bold text-slate-700 text-sm">MySQL Database</h4>
-                                <p className="text-xs text-slate-500 mt-1">{healthStatus?.database?.message || 'Mengecek status...'}</p>
-                            </div>
-                        </div>
-
-                        {/* Local Storage Status */}
-                        <div className="flex items-start gap-4 p-4 rounded-xl border bg-slate-50/50">
-                            {healthStatus?.storage?.connected ? (
-                                <CheckCircle className="text-green-500 mt-1" size={20} />
-                            ) : (
-                                <XCircle className="text-red-500 mt-1" size={20} />
-                            )}
-                            <div className="flex-1">
-                                <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
-                                    <HardDrive size={14} /> Local File Storage
-                                </h4>
-                                <p className={`text-xs mt-1 ${healthStatus?.storage?.connected ? 'text-slate-500' : 'text-red-500 font-bold'}`}>
-                                    {healthStatus?.storage?.message || 'Mengecek folder uploads...'}
-                                </p>
-                            </div>
-                        </div>
+       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            {/* Sidebar Navigation */}
+            <div className="lg:col-span-1">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-2">
+                        <button 
+                            onClick={() => setActiveTab('SYSTEM')}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm mb-1 ${activeTab === 'SYSTEM' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            <Activity size={18} /> System Status
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('AGGREGATOR')}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm mb-1 ${activeTab === 'AGGREGATOR' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            <Globe size={18} /> Aggregator
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('ADMINISTRATOR')}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-bold text-sm ${activeTab === 'ADMINISTRATOR' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                        >
+                            <Shield size={18} /> Administrator
+                        </button>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
-                <div className="flex items-center gap-3 mb-6">
-                    <Globe className="text-purple-500" size={24} />
-                    <h2 className="text-xl font-bold text-slate-800">Aggregators</h2>
-                </div>
-                <div className="space-y-4">
-                    <div className="flex gap-2">
-                        <input 
-                            value={newAgg}
-                            onChange={(e) => setNewAgg(e.target.value)}
-                            placeholder="Add aggregator..."
-                            className="flex-1 px-4 py-2 border border-gray-200 rounded-xl outline-none text-sm"
-                        />
-                        <button onClick={handleAdd} className="p-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700">
-                            <Plus size={20} />
-                        </button>
+            {/* Main Content Area */}
+            <div className="lg:col-span-3">
+                
+                {/* --- TAB: SYSTEM --- */}
+                {activeTab === 'SYSTEM' && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                <Server size={20} className="text-blue-500" /> System Health
+                            </h2>
+                            <button onClick={runHealthCheck} disabled={isChecking} className="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center gap-2">
+                                {isChecking ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />} Refresh
+                            </button>
+                        </div>
+
+                        {errorMessage && (
+                            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 text-sm font-bold">
+                                <XCircle size={20} /> {errorMessage}
+                            </div>
+                        )}
+
+                        <div className="space-y-4">
+                            <div className="flex items-center p-4 rounded-xl border bg-slate-50/50 justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-2 rounded-lg ${healthStatus?.database?.connected ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                        <Activity size={20} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-slate-700">MySQL Database</h4>
+                                        <p className="text-xs text-slate-500">{healthStatus?.database?.message || 'Checking...'}</p>
+                                    </div>
+                                </div>
+                                {healthStatus?.database?.connected ? <CheckCircle className="text-green-500" /> : <XCircle className="text-red-500" />}
+                            </div>
+
+                            <div className="flex items-center p-4 rounded-xl border bg-slate-50/50 justify-between">
+                                <div className="flex items-center gap-4">
+                                    <div className={`p-2 rounded-lg ${healthStatus?.storage?.connected ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                        <HardDrive size={20} />
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-slate-700">Local Storage</h4>
+                                        <p className="text-xs text-slate-500">{healthStatus?.storage?.message || 'Checking...'}</p>
+                                    </div>
+                                </div>
+                                {healthStatus?.storage?.connected ? <CheckCircle className="text-green-500" /> : <XCircle className="text-red-500" />}
+                            </div>
+                        </div>
                     </div>
-                    <div className="bg-slate-50 rounded-xl border border-gray-200 overflow-hidden max-h-64 overflow-y-auto">
-                        <ul className="divide-y divide-gray-200">
+                )}
+
+                {/* --- TAB: AGGREGATOR --- */}
+                {activeTab === 'AGGREGATOR' && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-6">
+                            <Globe size={20} className="text-purple-500" /> Manage Aggregators
+                        </h2>
+                        <div className="flex gap-2 mb-6">
+                            <input 
+                                value={newAgg}
+                                onChange={(e) => setNewAgg(e.target.value)}
+                                placeholder="Nama aggregator baru..."
+                                className="flex-1 px-4 py-3 border border-gray-200 rounded-xl outline-none text-sm bg-slate-50 focus:bg-white focus:border-blue-500 transition-all"
+                            />
+                            <button onClick={handleAddAggregator} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors flex items-center gap-2">
+                                <Plus size={18} /> Add
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {aggregators.map((agg, idx) => (
-                                <li key={idx} className="px-4 py-3 flex justify-between items-center bg-white">
-                                    <span className="text-sm font-medium text-slate-700">{agg}</span>
-                                    <button onClick={() => handleRemove(idx)} className="p-1.5 text-slate-400 hover:text-red-500">
+                                <div key={idx} className="px-4 py-3 flex justify-between items-center bg-white border border-gray-200 rounded-xl">
+                                    <span className="font-bold text-slate-700">{agg}</span>
+                                    <button onClick={() => handleRemoveAggregator(idx)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                                         <Trash2 size={16} />
                                     </button>
-                                </li>
+                                </div>
                             ))}
-                        </ul>
+                        </div>
                     </div>
-                </div>
+                )}
+
+                {/* --- TAB: ADMINISTRATOR --- */}
+                {activeTab === 'ADMINISTRATOR' && (
+                    <div className="space-y-8">
+                        {/* List Admins */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-6">
+                                <Shield size={20} className="text-slate-600" /> Daftar Admin
+                            </h2>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-slate-50 border-b border-gray-200">
+                                        <tr>
+                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Username</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Nama Lengkap</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Email</th>
+                                            <th className="px-4 py-3 text-xs font-bold text-slate-500 uppercase">Dibuat</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {admins.map(admin => (
+                                            <tr key={admin.id}>
+                                                <td className="px-4 py-3 font-bold text-slate-700">{admin.username}</td>
+                                                <td className="px-4 py-3 text-sm text-slate-600">{admin.full_name}</td>
+                                                <td className="px-4 py-3 text-sm text-slate-600">{admin.email}</td>
+                                                <td className="px-4 py-3 text-xs text-slate-400">{new Date(admin.created_at).toLocaleDateString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Add Admin Form */}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-6">
+                                <UserPlus size={20} className="text-green-600" /> Tambah Admin Baru
+                            </h2>
+                            <form onSubmit={handleAddAdmin} className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username</label>
+                                        <input required value={newAdmin.username} onChange={e => setNewAdmin({...newAdmin, username: e.target.value})} className="w-full px-4 py-2.5 border rounded-xl outline-none focus:border-blue-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nama Lengkap</label>
+                                        <input required value={newAdmin.fullName} onChange={e => setNewAdmin({...newAdmin, fullName: e.target.value})} className="w-full px-4 py-2.5 border rounded-xl outline-none focus:border-blue-500" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
+                                    <input required type="email" value={newAdmin.email} onChange={e => setNewAdmin({...newAdmin, email: e.target.value})} className="w-full px-4 py-2.5 border rounded-xl outline-none focus:border-blue-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
+                                    <input required type="password" value={newAdmin.password} onChange={e => setNewAdmin({...newAdmin, password: e.target.value})} className="w-full px-4 py-2.5 border rounded-xl outline-none focus:border-blue-500" />
+                                </div>
+                                <div className="pt-4">
+                                    <button type="submit" disabled={isAdminLoading} className="px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2">
+                                        {isAdminLoading ? <Loader2 className="animate-spin" size={18}/> : <Plus size={18} />} Simpan Admin
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                )}
+
             </div>
        </div>
     </div>
