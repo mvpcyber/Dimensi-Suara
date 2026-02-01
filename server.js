@@ -5,6 +5,7 @@ import mysql from 'mysql2/promise';
 import cors from 'cors';
 import path from 'path';
 import multer from 'multer';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import { Readable } from 'stream';
@@ -33,15 +34,49 @@ const db = mysql.createPool({
 });
 
 // --- GOOGLE DRIVE AUTH SETUP ---
-const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}'),
-    scopes: [
-        'https://www.googleapis.com/auth/drive.file'
-    ],
+async function getGoogleAuth() {
+    let credentials;
+    
+    // Cek apakah ada di Env Var
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+        try {
+            credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+            console.log("✅ Menggunakan Google Credentials dari Environment Variable.");
+        } catch (e) {
+            console.error("❌ Gagal parse GOOGLE_SERVICE_ACCOUNT_JSON dari Env Var.");
+        }
+    } 
+    
+    // Jika tidak ada di Env Var, coba baca dari file service-account.json
+    if (!credentials) {
+        const filePath = path.join(__dirname, 'service-account.json');
+        if (fs.existsSync(filePath)) {
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            credentials = JSON.parse(fileContent);
+            console.log("✅ Menggunakan Google Credentials dari file service-account.json.");
+        }
+    }
+
+    if (!credentials) {
+        throw new Error("❌ Google Credentials tidak ditemukan! Harap masukkan di Env Var atau upload file service-account.json.");
+    }
+
+    return new google.auth.GoogleAuth({
+        credentials,
+        scopes: ['https://www.googleapis.com/auth/drive.file'],
+    });
+}
+
+// Inisialisasi Drive API
+let drive;
+getGoogleAuth().then(auth => {
+    drive = google.drive({ version: 'v3', auth });
+}).catch(err => {
+    console.error(err.message);
 });
-const drive = google.drive({ version: 'v3', auth });
 
 async function uploadToDrive(fileBuffer, fileName, mimeType, folderId) {
+    if (!drive) throw new Error("Google Drive API belum siap.");
     const response = await drive.files.create({
         requestBody: {
             name: fileName,
@@ -57,7 +92,6 @@ async function uploadToDrive(fileBuffer, fileName, mimeType, folderId) {
 
 // --- API ROUTES ---
 
-// Upload Release (Metadata to MySQL, Files to Drive)
 app.post('/api/upload-release', upload.fields([
     { name: 'coverArt', maxCount: 1 },
     { name: 'audioFiles', maxCount: 20 }
@@ -75,7 +109,7 @@ app.post('/api/upload-release', upload.fields([
         });
         const folderId = folderResponse.data.id;
 
-        // 2. Upload Cover Art to Drive
+        // 2. Upload Cover Art
         let coverDriveId = '';
         if (req.files.coverArt) {
             coverDriveId = await uploadToDrive(
@@ -86,28 +120,19 @@ app.post('/api/upload-release', upload.fields([
             );
         }
 
-        // 3. Save Metadata to MySQL (Only)
+        // 3. Save to MySQL
         await db.query(
             'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [
-                metadata.title, 
-                metadata.upc, 
-                'Pending', 
-                new Date(), 
-                metadata.primaryArtists[0], 
-                '', 
-                folderId
-            ]
+            [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '', folderId]
         );
 
-        res.json({ success: true, message: 'Data metadata tersimpan di MySQL & File tersimpan di Google Drive!' });
+        res.json({ success: true, message: 'Berhasil diunggah ke Drive dan disimpan di MySQL!' });
     } catch (err) {
         console.error("Upload Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// Contracts API
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -134,7 +159,6 @@ app.post('/api/contracts', async (req, res) => {
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// Handle React Routing (Redirect all non-API requests to index.html)
 app.get('*', (req, res) => {
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(distPath, 'index.html'));
@@ -143,6 +167,5 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di port ${PORT}`);
-    console.log(`📂 Menyajikan file statis dari: ${distPath}`);
-    console.log(`🔗 Metadata dikirim ke MySQL, File dikirim ke Drive.`);
+    console.log(`📂 Menyajikan file dari: ${distPath}`);
 });
