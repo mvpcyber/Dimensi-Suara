@@ -69,7 +69,7 @@ async function getGoogleAuth() {
     return { auth, foundPath };
 }
 
-// Helper to pipe buffer to Drive (Updated for Shared Drive support)
+// Helper to pipe buffer to Drive
 const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
     const media = {
         mimeType: mimeType,
@@ -81,8 +81,7 @@ const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
             parents: [parentId]
         },
         media: media,
-        fields: 'id',
-        supportsAllDrives: true // CRITICAL: Required for Shared Drives
+        fields: 'id'
     });
     return response.data.id;
 };
@@ -118,17 +117,11 @@ app.get('/api/health-check', async (req, res) => {
             
             if (folderId) {
                 try {
-                    // Check folder with Shared Drive support
-                    const folder = await drive.files.get({ 
-                        fileId: folderId, 
-                        fields: 'id, name',
-                        supportsAllDrives: true 
-                    });
+                    const folder = await drive.files.get({ fileId: folderId, fields: 'id, name' });
                     status.googleDrive.connected = true;
                     status.googleDrive.message = `Terhubung ke Folder Utama: "${folder.data.name}"`;
                 } catch (driveErr) {
                     status.googleDrive.message = `Drive API Error: ${driveErr.message}`;
-                    status.googleDrive.suggestion = "Pastikan folder ID benar dan Service Account telah diundang ke folder/Shared Drive tersebut.";
                 }
             } else {
                 status.googleDrive.message = 'ID Folder belum diatur.';
@@ -160,15 +153,14 @@ app.post('/api/contracts', upload.fields([
             const parentId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
 
             if (parentId) {
-                // 1. Create Sub-folder for this contract (Updated for Shared Drive)
+                // 1. Create Sub-folder for this contract
                 const folderResponse = await drive.files.create({
                     requestBody: {
                         name: contractNumber,
                         mimeType: 'application/vnd.google-apps.folder',
                         parents: [parentId]
                     },
-                    fields: 'id',
-                    supportsAllDrives: true // REQUIRED for Shared Drives
+                    fields: 'id'
                 });
                 driveFolderId = folderResponse.data.id;
 
