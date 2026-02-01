@@ -124,9 +124,9 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                                             <ol className="list-decimal ml-4 space-y-1">
                                                 <li>Salin email Service Account di atas.</li>
                                                 <li>Buka folder pusat di Google Drive Anda.</li>
-                                                <li>Klik Kanan > Share (Bagikan).</li>
-                                                <li>Paste email tadi. Jika muncul error "tidak memiliki akun", coba **uncheck** opsi "Notify people" (Beritahu orang lain).</li>
-                                                <li>Pastikan role dipilih sebagai **Editor**.</li>
+                                                <li>Klik Kanan &gt; Share (Bagikan).</li>
+                                                <li>Paste email tadi. Jika muncul error "tidak memiliki akun", coba matikan opsi "Notify people" (Beritahu orang lain).</li>
+                                                <li>Pastikan role dipilih sebagai <strong>Editor</strong>.</li>
                                             </ol>
                                         </div>
                                     </div>
