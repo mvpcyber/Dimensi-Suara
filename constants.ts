@@ -141,6 +141,7 @@ export const SOCIAL_PLATFORMS = {
 };
 
 export const GOOGLE_CONFIG = {
+  // Ganti string di bawah ini dengan Client ID lengkap dari Google Console Anda
   CLIENT_ID: "1083744045117-p0p143eububq812pnd2q4091v7itp9of.apps.googleusercontent.com",
   SHEET_ID: "",
   FOLDER_ID: "" 
