@@ -52,11 +52,45 @@ export const uploadReleaseToGoogle = async (data: ReleaseData): Promise<{ succes
 };
 
 export const uploadContractToGoogle = async (data: Contract): Promise<{ success: boolean; message: string }> => {
+    const formData = new FormData();
+    
+    // Append files
+    if (data.ktpFile) formData.append('ktpFile', data.ktpFile);
+    if (data.npwpFile) formData.append('npwpFile', data.npwpFile);
+    if (data.signatureFile) formData.append('signatureFile', data.signatureFile);
+    
+    // Append metadata as stringified JSON
+    formData.append('metadata', JSON.stringify({
+        contractNumber: data.contractNumber,
+        artistName: data.artistName,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        durationYears: data.durationYears,
+        royaltyRate: data.royaltyRate,
+        status: data.status
+    }));
+
     const response = await fetch('/api/contracts', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: formData // Use FormData for multi-part upload
     });
-    if (!response.ok) throw new Error('Gagal menyimpan kontrak ke database.');
-    return { success: true, message: "Kontrak tersimpan." };
+    
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Gagal menyimpan kontrak ke database.');
+    }
+    
+    return await response.json();
+};
+
+export const updateContractStatus = async (id: string, status: string): Promise<void> => {
+    const response = await fetch(`/api/contracts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Gagal memperbarui status kontrak.');
+    }
 };

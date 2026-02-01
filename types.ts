@@ -186,17 +186,14 @@ export interface PublishingRegistration {
 
 export interface Contract {
   id: string;
-  contractNumber?: string; // New Field
-  artistName: string; // This will act as "Partner Name" in UI
-  type: 'Exclusive' | 'Non-Exclusive' | 'Distribution';
+  contractNumber: string; 
+  artistName: string; 
   startDate: string;
-  endDate: string; // Calculated from duration
-  durationYears: number; // Added
-  royaltyRate: number; // Percentage
-  // Updated statuses per request
+  endDate: string; 
+  durationYears: number; 
+  royaltyRate: number; 
   status: 'Pending' | 'Review' | 'Proses' | 'Selesai';
   createdDate: string;
-  notes?: string;
   
   // Files
   ktpFile: File | null;

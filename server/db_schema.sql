@@ -7,13 +7,12 @@ CREATE TABLE IF NOT EXISTS contracts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     contract_number VARCHAR(50) NOT NULL UNIQUE,
     artist_name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     duration_years INT NOT NULL,
     royalty_rate INT NOT NULL,
     status ENUM('Pending', 'Review', 'Proses', 'Selesai') DEFAULT 'Pending',
-    notes TEXT,
+    drive_folder_id VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

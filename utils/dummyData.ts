@@ -200,7 +200,6 @@ export const generateContracts = (count: number): Contract[] => {
     return Array.from({ length: count }, (_, i) => {
         // Adjusted statuses to match Contract type definition in types.ts
         const statuses: Contract['status'][] = ['Pending', 'Review', 'Proses', 'Selesai'];
-        const types: Contract['type'][] = ['Exclusive', 'Non-Exclusive', 'Distribution'];
         
         const startDate = generateDate(new Date(2020, 0, 1), new Date());
         const duration = randomInt(1, 5);
@@ -219,14 +218,12 @@ export const generateContracts = (count: number): Contract[] => {
             id: `ctr_${i + 1}`,
             contractNumber: `DS.${randomInt(100, 999)}-${dateStr}`,
             artistName: generateName(),
-            type: pick(types),
             startDate: startDate,
             endDate: end.toISOString().split('T')[0],
             durationYears: duration,
             royaltyRate: randomInt(50, 90),
             status: pick(statuses),
             createdDate: startDate,
-            notes: Math.random() > 0.7 ? "Standard contract template" : undefined,
             ktpFile: null,
             npwpFile: null,
             signatureFile: null
