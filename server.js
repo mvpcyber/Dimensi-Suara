@@ -21,28 +21,35 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Konfigurasi Database dari .env
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
-    user: process.env.DB_USER || 'dimensi_suara_db',
-    password: process.env.DB_PASSWORD || 'Bangbens220488!',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'dimensi_suara_db'
 };
 
 const db = mysql.createPool(dbConfig);
 
-// Helper untuk mendapatkan Google Auth Client (Token User atau Service Account)
+// Helper untuk mendapatkan Google Auth Client
 async function getGoogleAuth(req) {
     const authHeader = req.headers.authorization;
     
-    // Jika ada Bearer Token dari frontend (OAuth2 Flow)
+    // Jika ada Bearer Token dari frontend (OAuth2 Flow - Implicit/Token Model)
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.split(' ')[1];
-        const oauth2Client = new google.auth.OAuth2();
+        
+        // Inisialisasi OAuth2 dengan Client ID & Secret dari .env (Best Practice)
+        const oauth2Client = new google.auth.OAuth2(
+            process.env.VITE_GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET
+        );
+        
         oauth2Client.setCredentials({ access_token: token });
         return oauth2Client;
     }
 
-    // Fallback ke Service Account (jika ada)
+    // Fallback ke Service Account (jika ada file json)
     const credPath = path.join(__dirname, 'service-account.json');
     if (fs.existsSync(credPath)) {
         const auth = new google.auth.GoogleAuth({
@@ -55,9 +62,15 @@ async function getGoogleAuth(req) {
 }
 
 const uploadToDrive = async (drive, buffer, fileName, mimeType, parentId) => {
+    // Jika parentId tidak ada di .env, file akan masuk ke root drive user
+    const fileMetadata = { name: fileName };
+    if (parentId) {
+        fileMetadata.parents = [parentId];
+    }
+
     const media = { mimeType, body: Readable.from(buffer) };
     const response = await drive.files.create({
-        requestBody: { name: fileName, parents: [parentId] },
+        requestBody: fileMetadata,
         media: media,
         fields: 'id'
     });
@@ -72,12 +85,16 @@ app.get('/api/health-check', async (req, res) => {
         status.database.message = "MySQL Connected";
     } catch (err) { status.database.message = err.message; }
 
-    const auth = await getGoogleAuth(req);
-    if (auth) {
-        status.googleDrive.connected = true;
-        status.googleDrive.message = "Google Authenticated";
-    } else {
-        status.googleDrive.message = "Google Not Authenticated (Login required)";
+    try {
+        const auth = await getGoogleAuth(req);
+        if (auth) {
+            status.googleDrive.connected = true;
+            status.googleDrive.message = "Google Authenticated";
+        } else {
+            status.googleDrive.message = "Google Not Authenticated (Login required)";
+        }
+    } catch (e) {
+        status.googleDrive.message = "Auth Error: " + e.message;
     }
     res.json(status);
 });
@@ -96,13 +113,15 @@ app.post('/api/upload-release', upload.fields([
         if (!auth) throw new Error("Akses Google Drive diperlukan. Silakan login.");
         
         const drive = google.drive({ version: 'v3', auth });
+        
+        // Ambil Folder ID dari .env
         const parentId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
         // 1. Buat Folder Rilis di Drive
         const folderMetadata = {
             name: `${metadata.title} - ${metadata.upc || Date.now()}`,
             mimeType: 'application/vnd.google-apps.folder',
-            parents: [parentId]
+            parents: parentId ? [parentId] : []
         };
         const folderRes = await drive.files.create({
             requestBody: folderMetadata,
@@ -195,7 +214,7 @@ app.post('/api/contracts', upload.fields([
 
         // 1. Upload ke Drive
         const folderResponse = await drive.files.create({
-            requestBody: { name: contractNumber, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
+            requestBody: { name: contractNumber, mimeType: 'application/vnd.google-apps.folder', parents: parentId ? [parentId] : [] },
             fields: 'id'
         });
         const driveFolderId = folderResponse.data.id;
@@ -216,7 +235,6 @@ app.post('/api/contracts', upload.fields([
 app.get('/api/releases', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM releases ORDER BY submission_date DESC');
-        // Kita juga bisa mengambil tracks jika diperlukan, tapi untuk list view cukup header saja
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });

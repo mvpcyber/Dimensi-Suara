@@ -27,10 +27,32 @@ export const SOCIAL_PLATFORMS = {
   ]
 };
 
+// Fungsi aman untuk mengambil environment variable
+const getClientId = () => {
+  try {
+    // Cek import.meta.env (Vite standard)
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) {
+      // @ts-ignore
+      return import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    }
+  } catch (e) { console.warn("Error reading import.meta.env", e); }
+
+  try {
+    // Cek process.env (Vite 'define' replacement / Node fallback)
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env && process.env.VITE_GOOGLE_CLIENT_ID) {
+      // @ts-ignore
+      return process.env.VITE_GOOGLE_CLIENT_ID;
+    }
+  } catch (e) { console.warn("Error reading process.env", e); }
+
+  return "";
+};
+
 export const GOOGLE_CONFIG = {
-  // Client ID dari gambar Google Console Anda
-  CLIENT_ID: "1083744045117-p0p143eububq812pnd2q4091v7itp9of.apps.googleusercontent.com",
+  CLIENT_ID: getClientId(),
   
-  // ID Folder Google Drive (tempat upload lagu/kontrak)
-  FOLDER_ID: "1_example_folder_id_anda" 
+  // ID Folder Google Drive (tempat upload lagu/kontrak) - Opsional jika ingin hardcode
+  FOLDER_ID: "" 
 };
