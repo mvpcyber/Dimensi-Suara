@@ -1,4 +1,3 @@
-
 export const LANGUAGES = [
   "Indonesia",
   "United States",
@@ -140,9 +139,10 @@ export const SOCIAL_PLATFORMS = {
   ]
 };
 
+// Placeholder for Google API Config
 export const GOOGLE_CONFIG = {
-  // Ganti string di bawah ini dengan Client ID lengkap dari Google Console Anda
-  CLIENT_ID: "1083744045117-p0p143eububq812pnd2q4091v7itp9of.apps.googleusercontent.com",
-  SHEET_ID: "",
-  FOLDER_ID: "" 
+  CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID",
+  API_KEY: "YOUR_GOOGLE_API_KEY",
+  SHEET_ID: "YOUR_SPREADSHEET_ID",
+  FOLDER_ID: "YOUR_DRIVE_FOLDER_ID"
 };
