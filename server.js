@@ -66,6 +66,7 @@ async function getGoogleAuth() {
 
 // --- API ROUTES ---
 
+// 1. Health Check
 app.get('/api/health-check', async (req, res) => {
     const status = {
         database: { connected: false, message: 'Menghubungkan...' },
@@ -74,7 +75,6 @@ app.get('/api/health-check', async (req, res) => {
         serverTime: new Date().toISOString()
     };
 
-    // 1. Cek MySQL
     try {
         const [rows] = await db.query('SELECT 1 as ok');
         status.database.connected = true;
@@ -83,7 +83,6 @@ app.get('/api/health-check', async (req, res) => {
         status.database.message = `MySQL Error: ${err.message}`;
     }
 
-    // 2. Cek Auth & Drive
     const { auth, foundPath } = await getGoogleAuth();
     status.fileSystem.serviceAccountExists = !!auth;
     status.fileSystem.pathChecked = foundPath;
@@ -93,31 +92,18 @@ app.get('/api/health-check', async (req, res) => {
             const drive = google.drive({ version: 'v3', auth });
             const creds = await auth.getCredentials();
             status.googleDrive.email = creds.client_email;
-
-            // Bersihkan folderId dari spasi yang mungkin terbawa di Plesk
             const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
             
             if (folderId) {
                 try {
-                    const folder = await drive.files.get({ 
-                        fileId: folderId,
-                        fields: 'id, name'
-                    });
+                    const folder = await drive.files.get({ fileId: folderId, fields: 'id, name' });
                     status.googleDrive.connected = true;
                     status.googleDrive.message = `Terhubung ke Folder: "${folder.data.name}"`;
                 } catch (driveErr) {
-                    if (driveErr.message.includes('not found')) {
-                        status.googleDrive.message = `Error 404: Folder tidak terlihat oleh Service Account.`;
-                        status.googleDrive.suggestion = "Pastikan Google Drive API sudah di-ENABLE di Google Cloud Console dan email di bawah sudah diundang sebagai EDITOR ke folder tersebut.";
-                    } else if (driveErr.message.includes('API has not been used')) {
-                        status.googleDrive.message = "Google Drive API Belum Aktif.";
-                        status.googleDrive.suggestion = "Buka Google Cloud Console, pilih project Anda, lalu aktifkan 'Google Drive API'.";
-                    } else {
-                        status.googleDrive.message = `Drive API Error: ${driveErr.message}`;
-                    }
+                    status.googleDrive.message = `Drive API Error: ${driveErr.message}`;
                 }
             } else {
-                status.googleDrive.message = 'GOOGLE_DRIVE_FOLDER_ID kosong di Plesk.';
+                status.googleDrive.message = 'ID Folder belum diatur.';
             }
         } catch (err) {
             status.googleDrive.message = `Auth Error: ${err.message}`;
@@ -125,19 +111,10 @@ app.get('/api/health-check', async (req, res) => {
     } else {
         status.googleDrive.message = 'File service-account.json tidak ditemukan.';
     }
-
     res.json(status);
 });
 
-app.get('/api/releases', async (req, res) => {
-    try {
-        const [rows] = await db.query('SELECT * FROM releases ORDER BY created_at DESC');
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
+// 2. Contracts: Get All
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -147,6 +124,52 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
+// 3. Contracts: Create (INI YANG SEBELUMNYA HILANG)
+app.post('/api/contracts', async (req, res) => {
+    try {
+        const c = req.body;
+        const sql = `INSERT INTO contracts 
+            (contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+        const values = [
+            c.contractNumber, 
+            c.artistName, 
+            c.type, 
+            c.startDate, 
+            c.endDate, 
+            c.durationYears, 
+            c.royaltyRate, 
+            c.status || 'Pending', 
+            c.notes || ''
+        ];
+
+        const [result] = await db.query(sql, values);
+        res.status(201).json({ success: true, id: result.insertId, message: "Kontrak berhasil disimpan ke database." });
+    } catch (err) {
+        console.error("Database Error:", err);
+        res.status(500).json({ success: false, error: "Gagal menyimpan ke database: " + err.message });
+    }
+});
+
+// 4. Releases: Get All
+app.get('/api/releases', async (req, res) => {
+    try {
+        const [rows] = await db.query('SELECT * FROM releases ORDER BY submission_date DESC');
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 5. Releases: Create (Placeholder untuk upload lagu)
+app.post('/api/upload-release', async (req, res) => {
+    // Logic untuk upload rilis lagu bisa kompleks (membutuhkan Multer)
+    // Untuk saat ini kita pastikan endpoint tersedia agar tidak 404
+    res.status(501).json({ error: "Fitur upload lagu sedang dalam sinkronisasi file sistem." });
+});
+
+// --- SERVE FRONTEND (STATIC) ---
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
