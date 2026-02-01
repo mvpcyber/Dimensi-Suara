@@ -1,3 +1,5 @@
+
+
 export const LANGUAGES = [
   "Indonesia",
   "United States",
@@ -74,33 +76,6 @@ export const TRACK_GENRES = [
   "Soul"
 ];
 
-export const DISTRIBUTION_PLATFORMS = [
-  "Spotify",
-  "Apple Music",
-  "Amazon Music",
-  "YouTube Music",
-  "Anghami",
-  "Audiomack",
-  "AWA",
-  "ClaroMusica",
-  "Deezer",
-  "Gracenote",
-  "iHeartRadio",
-  "JioSaavn",
-  "Joox",
-  "KKBox",
-  "Line Music",
-  "NetEase",
-  "Pandora",
-  "Qobuz",
-  "SoundCloud",
-  "Tencent",
-  "Tidal",
-  "TouchTunes / PlayNetwork",
-  "Traxsource",
-  "Trebel"
-];
-
 export const PLATFORM_DOMAINS: Record<string, string> = {
   "Spotify": "spotify.com",
   "Apple Music": "apple.com",
@@ -128,6 +103,8 @@ export const PLATFORM_DOMAINS: Record<string, string> = {
   "Trebel": "trebel.io"
 };
 
+export const DISTRIBUTION_PLATFORMS = Object.keys(PLATFORM_DOMAINS);
+
 export const SOCIAL_PLATFORMS = {
   IN_HOUSE: [
     { id: 'TikTok', name: 'TikTok', domain: 'tiktok.com' },
@@ -137,12 +114,4 @@ export const SOCIAL_PLATFORMS = {
     { id: 'Meta', name: 'Meta', domain: 'meta.com', helpText: 'Facebook & Instagram' },
     { id: 'Peloton', name: 'Peloton', domain: 'onepeloton.com', helpText: 'Connected Fitness' }
   ]
-};
-
-// Placeholder for Google API Config
-export const GOOGLE_CONFIG = {
-  CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID",
-  API_KEY: "YOUR_GOOGLE_API_KEY",
-  SHEET_ID: "YOUR_SPREADSHEET_ID",
-  FOLDER_ID: "YOUR_DRIVE_FOLDER_ID"
 };

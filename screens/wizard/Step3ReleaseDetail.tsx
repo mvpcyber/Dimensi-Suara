@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ReleaseData } from '../../types';
 import { TextInput } from '../../components/Input';
 import { Calendar, Globe, Check, Lightbulb, HelpCircle, ChevronDown, ChevronUp } from 'lucide-react';
-import { DISTRIBUTION_PLATFORMS, PLATFORM_DOMAINS, SOCIAL_PLATFORMS } from '../../constants';
+import { PLATFORM_DOMAINS, SOCIAL_PLATFORMS } from '../../constants';
 
 interface Props {
   data: ReleaseData;
@@ -12,6 +12,22 @@ interface Props {
 
 export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
   const [isDistExpanded, setIsDistExpanded] = useState(false);
+  const [dbPlatforms, setDbPlatforms] = useState<string[]>([]);
+
+  useEffect(() => {
+      const fetchPlatforms = async () => {
+          try {
+              const res = await fetch('/api/platforms');
+              if(res.ok) {
+                  const items = await res.json();
+                  if(Array.isArray(items)) {
+                      setDbPlatforms(items.map((i: any) => i.name));
+                  }
+              }
+          } catch(e) { console.error("Failed to load platforms", e); }
+      };
+      fetchPlatforms();
+  }, []);
   
   const togglePlatform = (platform: string) => {
     const current = data.selectedPlatforms || [];
@@ -24,10 +40,10 @@ export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
 
   const toggleAllPlatforms = () => {
     const current = data.selectedPlatforms || [];
-    if (current.length === DISTRIBUTION_PLATFORMS.length) {
+    if (current.length === dbPlatforms.length) {
       updateData({ selectedPlatforms: [] });
     } else {
-      updateData({ selectedPlatforms: [...DISTRIBUTION_PLATFORMS] });
+      updateData({ selectedPlatforms: [...dbPlatforms] });
     }
   };
 
@@ -61,10 +77,6 @@ export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
       const selectedCount = items.filter(i => data.socialPlatforms?.includes(i.id)).length;
       const allSelected = selectedCount === items.length;
       const groupIds = items.map(i => i.id);
-
-      // Check if group contains locked items to determine main checkbox behavior/style
-      // If group has locked items, we can still "Select All" (if others are unchecked) or "Deselect All" (but locked ones stay)
-      // For simplicity, main checkbox operates on 'toggleSocialGroup' logic which handles locks.
 
       return (
         <div className="border border-gray-200 rounded-xl p-5 mb-4 bg-white shadow-sm">
@@ -149,8 +161,8 @@ export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
 
   const renderDistributionSection = () => {
       const selectedCount = data.selectedPlatforms?.length || 0;
-      const totalCount = DISTRIBUTION_PLATFORMS.length;
-      const allSelected = selectedCount === totalCount;
+      const totalCount = dbPlatforms.length;
+      const allSelected = selectedCount === totalCount && totalCount > 0;
 
       return (
         <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm animate-fade-in">
@@ -201,7 +213,7 @@ export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
 
             {isDistExpanded && (
                 <div className="mt-5 pt-5 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in">
-                    {DISTRIBUTION_PLATFORMS.map((platform) => {
+                    {dbPlatforms.map((platform) => {
                     const isSelected = data.selectedPlatforms?.includes(platform);
                     const domain = PLATFORM_DOMAINS[platform];
                     const logoUrl = domain ? `https://logo.clearbit.com/${domain}` : null;
@@ -246,6 +258,7 @@ export const Step3ReleaseDetail: React.FC<Props> = ({ data, updateData }) => {
                         </div>
                     );
                     })}
+                    {dbPlatforms.length === 0 && <p className="col-span-2 text-center text-sm text-slate-400 italic py-4">No platforms available. Add them in Settings.</p>}
                     <div className="col-span-1 sm:col-span-2 mt-4 pt-2 border-t border-gray-50">
                         <p className="text-xs text-slate-400 text-center">Your music will be delivered to the selected stores upon approval.</p>
                     </div>

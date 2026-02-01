@@ -11,30 +11,77 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('Admin', 'User') DEFAULT 'User',
     full_name VARCHAR(255),
-    contract_id INT NULL, -- Jika user adalah artist dari kontrak tertentu
+    contract_id INT NULL, 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert Default Admin (Password: admin123)
--- Hash bcrypt untuk 'admin123' adalah $2a$10$X.w.... (disederhanakan untuk contoh import, server.js akan handle pembuatan otomatis jika kosong)
--- INSERT INTO users (username, email, password_hash, role, full_name) VALUES 
--- ('admin', 'admin@dimensisuara.com', '$2a$10$TargetHashGeneratedByBcrypt', 'Admin', 'Super Admin');
+-- 2. Tabel Aggregators (Partner Distribusi)
+CREATE TABLE IF NOT EXISTS aggregators (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
--- 2. Tabel Contracts (Kontrak Kerjasama)
+INSERT IGNORE INTO aggregators (name) VALUES 
+('LokaMusik'), ('SoundOn'), ('Tunecore'), ('Believe'), ('DistroKid');
+
+-- 3. Tabel Platforms (DSP - Spotify, Apple, dll)
+CREATE TABLE IF NOT EXISTS platforms (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    domain VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO platforms (name, domain) VALUES 
+('Spotify', 'spotify.com'),
+('Apple Music', 'apple.com'),
+('TikTok', 'tiktok.com'),
+('YouTube Music', 'music.youtube.com'),
+('Amazon Music', 'music.amazon.com'),
+('Deezer', 'deezer.com'),
+('Instagram/Facebook', 'meta.com');
+
+-- 4. Tabel Analytics (Statistik Stream & Revenue)
+CREATE TABLE IF NOT EXISTS analytics (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    platform_name VARCHAR(100),
+    streams BIGINT DEFAULT 0,
+    revenue DECIMAL(15, 2) DEFAULT 0,
+    month INT,
+    year INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Tabel Contracts (Kontrak Kerjasama) - UPDATED
 CREATE TABLE IF NOT EXISTS contracts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     contract_number VARCHAR(50) NOT NULL UNIQUE,
-    artist_name VARCHAR(255) NOT NULL,
+    artist_name VARCHAR(255) NOT NULL, -- Nama Panggung
+    legal_name VARCHAR(255), -- Nama Sesuai KTP
+    nik VARCHAR(50),
+    phone VARCHAR(20),
+    country VARCHAR(100) DEFAULT 'Indonesia',
+    citizenship VARCHAR(100),
+    address TEXT,
+    province VARCHAR(100),
+    city VARCHAR(100),
+    district VARCHAR(100),
+    village VARCHAR(100),
+    postal_code VARCHAR(20),
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     duration_years INT NOT NULL,
     royalty_rate INT NOT NULL,
     status ENUM('Pending', 'Review', 'Proses', 'Selesai') DEFAULT 'Pending',
-    drive_folder_id VARCHAR(255) DEFAULT 'LOCAL', -- Path folder lokal atau ID GDrive
+    drive_folder_id VARCHAR(255) DEFAULT 'LOCAL',
+    ktp_url VARCHAR(500),
+    npwp_url VARCHAR(500),
+    signature_url VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Tabel Releases (Header Rilis Album/Single)
+-- 6. Tabel Releases (Header Rilis Album/Single)
 CREATE TABLE IF NOT EXISTS releases (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
@@ -50,10 +97,13 @@ CREATE TABLE IF NOT EXISTS releases (
     is_new_release BOOLEAN DEFAULT TRUE,
     original_release_date DATE,
     planned_release_date DATE,
+    rejection_reason TEXT,
+    rejection_description TEXT,
+    selected_platforms TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Tabel Tracks (Lagu dalam Rilis)
+-- 7. Tabel Tracks (Lagu dalam Rilis)
 CREATE TABLE IF NOT EXISTS tracks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     release_id INT,

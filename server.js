@@ -32,7 +32,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// --- KONFIGURASI FOLDER UPLOAD ---
+// --- KONFIGURASI FOLDER UPLOAD (LOCAL STORAGE) ---
 const UPLOAD_DIRS = {
     base: path.join(__dirname, 'public/uploads'),
     covers: path.join(__dirname, 'public/uploads/covers'),
@@ -71,10 +71,6 @@ const upload = multer({
     limits: { fileSize: 100 * 1024 * 1024 } 
 });
 
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
-const distPath = path.resolve(__dirname, 'dist');
-app.use(express.static(distPath));
-
 // --- DATABASE ---
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
@@ -87,45 +83,6 @@ const dbConfig = {
 
 const db = mysql.createPool(dbConfig);
 
-const initDb = async () => {
-    const connection = await db.getConnection();
-    try {
-        await connection.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                username VARCHAR(100) UNIQUE NOT NULL,
-                email VARCHAR(255) NOT NULL,
-                password_hash VARCHAR(255) NOT NULL,
-                role ENUM('Admin', 'User') DEFAULT 'User',
-                full_name VARCHAR(255),
-                contract_id INT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-
-        // Buat Admin Default jika belum ada
-        const [admins] = await connection.query("SELECT * FROM users WHERE role = 'Admin'");
-        if (admins.length === 0) {
-            const hash = await bcrypt.hash('admin123', 10);
-            await connection.query(
-                "INSERT INTO users (username, email, password_hash, role, full_name) VALUES (?, ?, ?, ?, ?)",
-                ['admin', 'admin@dimensisuara.com', hash, 'Admin', 'Super Admin']
-            );
-            console.log("Admin default created: admin / admin123");
-        }
-
-        // Init other tables (releases, tracks, contracts) as defined previously...
-        // (Skipping repetition for brevity, assuming DB schema is handled by the sql file or previous init code)
-        
-        console.log("Database initialized.");
-    } catch (err) {
-        console.error("Init DB Error:", err);
-    } finally {
-        connection.release();
-    }
-};
-initDb();
-
 const getFileUrl = (req, folderName, filename) => {
     if (!filename) return '';
     return `${req.protocol}://${req.get('host')}/uploads/${folderName}/${filename}`;
@@ -133,8 +90,7 @@ const getFileUrl = (req, folderName, filename) => {
 
 // --- ROUTES ---
 
-// ... (Auth & User Routes) ...
-
+// Auth
 app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     try {
@@ -161,19 +117,62 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// ADMIN MANAGEMENT ROUTES (NEW)
+// --- SETTINGS ROUTES ---
 
-// Get All Admins
+// 1. Aggregators
+app.get('/api/aggregators', async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT * FROM aggregators ORDER BY name ASC");
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/aggregators', async (req, res) => {
+    const { name } = req.body;
+    try {
+        await db.query("INSERT INTO aggregators (name) VALUES (?)", [name]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/aggregators/:id', async (req, res) => {
+    try {
+        await db.query("DELETE FROM aggregators WHERE id = ?", [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 2. Platforms (DSP)
+app.get('/api/platforms', async (req, res) => {
+    try {
+        const [rows] = await db.query("SELECT * FROM platforms ORDER BY name ASC");
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/platforms', async (req, res) => {
+    const { name, domain } = req.body;
+    try {
+        await db.query("INSERT INTO platforms (name, domain) VALUES (?, ?)", [name, domain || '']);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.delete('/api/platforms/:id', async (req, res) => {
+    try {
+        await db.query("DELETE FROM platforms WHERE id = ?", [req.params.id]);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// 3. Admins
 app.get('/api/admins', async (req, res) => {
     try {
         const [rows] = await db.query("SELECT id, username, email, full_name, created_at FROM users WHERE role = 'Admin'");
         res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Add New Admin
 app.post('/api/admins', async (req, res) => {
     const { username, email, password, fullName } = req.body;
     try {
@@ -183,25 +182,36 @@ app.post('/api/admins', async (req, res) => {
             [username, email, hash, fullName]
         );
         res.json({ success: true, message: 'Admin baru berhasil ditambahkan' });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- STATISTICS ROUTE ---
+app.get('/api/statistics', async (req, res) => {
+    try {
+        const [releaseCounts] = await db.query(`
+            SELECT 
+                COUNT(*) as total_releases,
+                SUM(CASE WHEN (SELECT COUNT(*) FROM tracks WHERE tracks.release_id = releases.id) = 1 THEN 1 ELSE 0 END) as singles,
+                SUM(CASE WHEN (SELECT COUNT(*) FROM tracks WHERE tracks.release_id = releases.id) > 1 THEN 1 ELSE 0 END) as albums
+            FROM releases
+        `);
+        const [trackCount] = await db.query("SELECT COUNT(*) as total_tracks FROM tracks");
+        const [analytics] = await db.query("SELECT platform_name, SUM(streams) as total_streams, SUM(revenue) as total_revenue FROM analytics GROUP BY platform_name");
+        
+        res.json({
+            catalog: {
+                totalTracks: trackCount[0].total_tracks,
+                albums: releaseCounts[0].albums,
+                singles: releaseCounts[0].singles
+            },
+            platforms: analytics
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// User Management Routes (Existing)
-app.get('/api/users/candidates', async (req, res) => {
-    try {
-        const sql = `
-            SELECT * FROM contracts 
-            WHERE status = 'Selesai' 
-            AND id NOT IN (SELECT contract_id FROM users WHERE contract_id IS NOT NULL)
-        `;
-        const [rows] = await db.query(sql);
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
+// --- USER & CONTRACT ROUTES ---
 
 app.post('/api/users/generate', async (req, res) => {
     const { contractId, email } = req.body;
@@ -247,16 +257,26 @@ app.post('/api/users/generate', async (req, res) => {
     }
 });
 
+app.get('/api/users/candidates', async (req, res) => {
+    try {
+        const sql = `
+            SELECT * FROM contracts 
+            WHERE status = 'Selesai' 
+            AND id NOT IN (SELECT contract_id FROM users WHERE contract_id IS NOT NULL)
+        `;
+        const [rows] = await db.query(sql);
+        res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/users', async (req, res) => {
     try {
         const [rows] = await db.query("SELECT id, username, email, role, full_name, created_at FROM users");
         res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// --- EXISTING FILE & DATA ROUTES (Release, Contract) ---
+// --- RELEASE UPLOAD & DATA ---
 
 app.get('/api/health-check', async (req, res) => {
     const status = {
@@ -276,7 +296,6 @@ app.get('/api/health-check', async (req, res) => {
     res.json(status);
 });
 
-// Upload Release
 app.post('/api/upload-release', upload.fields([{ name: 'coverArt', maxCount: 1 }, { name: 'audioFiles' }]), async (req, res) => {
     const connection = await db.getConnection();
     try {
@@ -288,9 +307,11 @@ app.post('/api/upload-release', upload.fields([{ name: 'coverArt', maxCount: 1 }
             coverArtUrl = getFileUrl(req, 'covers', req.files['coverArt'][0].filename);
         }
 
+        const selectedPlatformsJson = JSON.stringify(metadata.selectedPlatforms || []);
+
         const [releaseResult] = await connection.query(
-            `INSERT INTO releases (title, upc, status, artist_name, label, language, version, is_new_release, original_release_date, planned_release_date, aggregator, cover_art_url, submission_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-            [metadata.title, metadata.upc, 'Pending', metadata.primaryArtists.join(', '), metadata.label, metadata.language, metadata.version, metadata.isNewRelease ? 1 : 0, metadata.originalReleaseDate || null, metadata.plannedReleaseDate || null, metadata.aggregator || null, coverArtUrl]
+            `INSERT INTO releases (title, upc, status, artist_name, label, language, version, is_new_release, original_release_date, planned_release_date, aggregator, cover_art_url, selected_platforms, submission_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [metadata.title, metadata.upc, 'Pending', metadata.primaryArtists.join(', '), metadata.label, metadata.language, metadata.version, metadata.isNewRelease ? 1 : 0, metadata.originalReleaseDate || null, metadata.plannedReleaseDate || null, metadata.aggregator || null, coverArtUrl, selectedPlatformsJson]
         );
         const releaseId = releaseResult.insertId;
 
@@ -315,17 +336,35 @@ app.post('/api/upload-release', upload.fields([{ name: 'coverArt', maxCount: 1 }
     }
 });
 
-// Contracts Endpoints
+// ... Contracts UPDATED ...
 app.post('/api/contracts', upload.fields([{ name: 'ktpFile', maxCount: 1 }, { name: 'npwpFile', maxCount: 1 }, { name: 'signatureFile', maxCount: 1 }]), async (req, res) => {
     try {
         const metadata = JSON.parse(req.body.metadata);
-        const { contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status } = metadata;
-        const sql = `INSERT INTO contracts (contract_number, artist_name, start_date, end_date, duration_years, royalty_rate, status, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-        const values = [contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status || 'Pending', 'LOCAL'];
+        const { 
+            contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status,
+            // New Fields
+            legalName, nik, phone, country, citizenship, address, province, city, district, village, postalCode
+        } = metadata;
+        
+        const ktpUrl = req.files['ktpFile'] ? getFileUrl(req, 'contracts', req.files['ktpFile'][0].filename) : '';
+        const npwpUrl = req.files['npwpFile'] ? getFileUrl(req, 'contracts', req.files['npwpFile'][0].filename) : '';
+        const signatureUrl = req.files['signatureFile'] ? getFileUrl(req, 'contracts', req.files['signatureFile'][0].filename) : '';
+
+        const sql = `INSERT INTO contracts 
+            (contract_number, artist_name, legal_name, nik, phone, country, citizenship, address, province, city, district, village, postal_code, start_date, end_date, duration_years, royalty_rate, status, drive_folder_id, ktp_url, npwp_url, signature_url) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+        const values = [
+            contractNumber, artistName, 
+            legalName || null, nik || null, phone || null, country || 'Indonesia', citizenship || null, address || null, province || null, city || null, district || null, village || null, postalCode || null,
+            startDate, endDate, durationYears, royaltyRate, status || 'Pending', 'LOCAL', ktpUrl, npwpUrl, signatureUrl
+        ];
+        
         const [result] = await db.query(sql, values);
         res.status(201).json({ success: true, id: result.insertId });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
+    } catch (err) { 
+        console.error("Contract Error:", err);
+        res.status(500).json({ success: false, error: err.message }); 
     }
 });
 
@@ -352,17 +391,20 @@ app.delete('/api/contracts/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Releases Endpoint
 app.get('/api/releases', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM releases ORDER BY submission_date DESC');
         const releasesWithTracks = await Promise.all(rows.map(async (release) => {
             const [tracks] = await db.query('SELECT * FROM tracks WHERE release_id = ? ORDER BY track_number ASC', [release.id]);
+            let platforms = [];
+            try { platforms = JSON.parse(release.selected_platforms || '[]'); } catch(e) {}
+
             return {
                 ...release,
                 id: release.id.toString(),
                 primaryArtists: release.artist_name ? release.artist_name.split(', ') : [],
                 isNewRelease: !!release.is_new_release,
+                selectedPlatforms: platforms,
                 tracks: tracks.map(t => ({
                     ...t,
                     id: t.id.toString(),
@@ -378,6 +420,11 @@ app.get('/api/releases', async (req, res) => {
         res.json(releasesWithTracks);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Serve static files AFTER API routes to ensure API priority
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+const distPath = path.resolve(__dirname, 'dist');
+app.use(express.static(distPath));
 
 app.get('*', (req, res) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {

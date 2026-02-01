@@ -10,7 +10,7 @@ import { Statistics } from './screens/Statistics';
 import { Contracts } from './screens/Contracts';
 import { Settings } from './screens/Settings';
 import { LoginScreen } from './screens/LoginScreen'; 
-import { UserManagement } from './screens/UserManagement'; // New Screen
+import { UserManagement } from './screens/UserManagement'; 
 import { ReleaseDetailModal } from './components/ReleaseDetailModal';
 import { ReleaseType, ReleaseData, Contract } from './types';
 import { Menu, LogOut, Loader2 } from 'lucide-react';
@@ -19,7 +19,7 @@ import { getAllReleases } from './services/googleService';
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [currentUser, setCurrentUser] = useState<any>(null); // Object: { username, role, fullName }
+  const [currentUser, setCurrentUser] = useState<any>(null); 
   const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
   
   const [showLogoutDialog, setShowLogoutDialog] = useState<boolean>(false);
@@ -28,7 +28,7 @@ const App: React.FC = () => {
 
   const [allReleases, setAllReleases] = useState<ReleaseData[]>([]);
   const [allContracts, setAllContracts] = useState<Contract[]>([]);
-  const [aggregators, setAggregators] = useState<string[]>(["LokaMusik", "SoundOn", "Tunecore", "Believe"]);
+  const [aggregators, setAggregators] = useState<string[]>([]);
   
   const [wizardStep, setWizardStep] = useState<'SELECTION' | 'WIZARD'>('SELECTION');
   const [releaseType, setReleaseType] = useState<ReleaseType | null>(null);
@@ -42,6 +42,13 @@ const App: React.FC = () => {
         const releases = await getAllReleases();
         setAllReleases(releases);
         
+        // Fetch Aggregators from DB
+        const aggRes = await fetch('/api/aggregators');
+        if(aggRes.ok) {
+            const aggs = await aggRes.json();
+            setAggregators(aggs.map((a: any) => a.name));
+        }
+
         // Hanya Admin yang bisa lihat kontrak
         if (currentUser?.role === 'Admin') {
             const contractRes = await fetch('/api/contracts');
@@ -83,7 +90,7 @@ const App: React.FC = () => {
     if (isAuthenticated) {
         refreshData();
     }
-  }, [isAuthenticated, currentUser]); // Refresh if user changes
+  }, [isAuthenticated, currentUser]);
 
   const handleLogin = (user: any) => {
     localStorage.setItem('cms_user_data', JSON.stringify(user));

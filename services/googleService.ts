@@ -10,7 +10,11 @@ export const checkSystemHealth = async () => {
     
     const contentType = response.headers.get("content-type");
     if (!contentType || !contentType.includes("application/json")) {
-        throw new Error("Server mengirim balasan HTML, bukan JSON. Ini biasanya karena kesalahan routing atau .htaccess di Plesk.");
+        // Return a dummy offline status instead of throwing, so the UI handles it gracefully
+        return {
+            database: { connected: false, message: 'Invalid Response (HTML)' },
+            storage: { connected: false, message: 'Check Connection' }
+        };
     }
 
     if (!response.ok) {
@@ -63,6 +67,17 @@ export const uploadContractToGoogle = async (data: Contract): Promise<{ success:
     formData.append('metadata', JSON.stringify({
         contractNumber: data.contractNumber,
         artistName: data.artistName,
+        legalName: data.legalName,
+        nik: data.nik,
+        phone: data.phone,
+        country: data.country,
+        citizenship: data.citizenship,
+        address: data.address,
+        province: data.province,
+        city: data.city,
+        district: data.district,
+        village: data.village,
+        postalCode: data.postalCode,
         startDate: data.startDate,
         endDate: data.endDate,
         durationYears: data.durationYears,

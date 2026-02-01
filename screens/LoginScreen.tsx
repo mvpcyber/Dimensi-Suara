@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
-import { Music4, User, Lock, ArrowRight, AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Music4, User, Lock, ArrowRight, AlertCircle, Eye, EyeOff, Loader2, Database, Wifi } from 'lucide-react';
+import { checkSystemHealth } from '../services/googleService';
 
 interface Props {
   onLogin: (user: any) => void;
@@ -12,6 +13,22 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{connected: boolean, message: string} | null>(null);
+
+  useEffect(() => {
+      const checkDb = async () => {
+          try {
+              const status = await checkSystemHealth();
+              setDbStatus({
+                  connected: status.database.connected,
+                  message: status.database.connected ? 'Database Online' : 'Database Offline'
+              });
+          } catch (e) {
+              setDbStatus({ connected: false, message: 'Server Unreachable' });
+          }
+      };
+      checkDb();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +58,37 @@ export const LoginScreen: React.FC<Props> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 p-4 relative">
+      
+      {/* Database Status Indicator */}
+      <div className="absolute top-6 right-6 flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur-md rounded-full shadow-sm border border-slate-100 text-xs font-bold transition-all hover:shadow-md cursor-default">
+          {dbStatus === null ? (
+              <>
+                  <Loader2 size={14} className="animate-spin text-slate-400" />
+                  <span className="text-slate-500">Checking System...</span>
+              </>
+          ) : dbStatus.connected ? (
+              <>
+                  <div className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </div>
+                  <span className="text-green-700 flex items-center gap-1.5">
+                      <Database size={14} /> 
+                      Online Database
+                  </span>
+              </>
+          ) : (
+              <>
+                  <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                  <span className="text-red-600 flex items-center gap-1.5">
+                      <Wifi size={14} className="text-red-500" />
+                      {dbStatus.message}
+                  </span>
+              </>
+          )}
+      </div>
+
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl shadow-blue-900/10 border border-white p-8 md:p-10 animate-fade-in-up">
         
         <div className="text-center mb-10">

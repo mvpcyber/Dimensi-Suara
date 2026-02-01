@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Contract } from '../types';
 import { uploadContractToGoogle, updateContractStatus } from '../services/googleService';
-import { FileSignature, Plus, Search, Trash2, CheckCircle, Upload, Loader2, X, Check, Eye, ZoomIn, RotateCw } from 'lucide-react';
+import { FileSignature, Plus, Search, Trash2, CheckCircle, Upload, Loader2, X, Check, Eye, ZoomIn, RotateCw, User, MapPin } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 interface Props {
@@ -12,6 +12,12 @@ interface Props {
 }
 
 const API_URL = '/api/contracts';
+
+// --- Region Types & Helper ---
+interface Region {
+    id: string;
+    name: string;
+}
 
 const createImage = (url: string): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
@@ -76,7 +82,18 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
     const [formData, setFormData] = useState<Contract>({
         id: '',
         contractNumber: '',
-        artistName: '',
+        artistName: '', // Stage Name
+        legalName: '', // Nama KTP
+        nik: '',
+        phone: '',
+        country: 'Indonesia',
+        citizenship: '',
+        address: '',
+        province: '',
+        city: '',
+        district: '',
+        village: '',
+        postalCode: '',
         startDate: '',
         endDate: '',
         durationYears: 1,
@@ -88,6 +105,17 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
         signatureFile: null
     });
 
+    // Region State
+    const [provinces, setProvinces] = useState<Region[]>([]);
+    const [regencies, setRegencies] = useState<Region[]>([]);
+    const [districts, setDistricts] = useState<Region[]>([]);
+    const [villages, setVillages] = useState<Region[]>([]);
+    const [isLoadingRegions, setIsLoadingRegions] = useState(false);
+    
+    // Helper to store IDs for API fetching, while storing Names in FormData
+    const [regionIds, setRegionIds] = useState({ prov: '', city: '', dist: '', vill: '' });
+
+    // Crop State
     const [cropModalOpen, setCropModalOpen] = useState(false);
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
     const [cropTargetField, setCropTargetField] = useState<'ktpFile' | 'npwpFile' | 'signatureFile' | null>(null);
@@ -97,15 +125,14 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
     const [isProcessingCrop, setIsProcessingCrop] = useState(false);
 
+    // Detail/List State
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [editStatus, setEditStatus] = useState<Contract['status']>('Pending');
-
     const [searchTerm, setSearchTerm] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
-
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 8;
 
@@ -119,6 +146,17 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                 id: item.id.toString(),
                 contractNumber: item.contract_number,
                 artistName: item.artist_name,
+                legalName: item.legal_name,
+                nik: item.nik,
+                phone: item.phone,
+                country: item.country,
+                citizenship: item.citizenship,
+                address: item.address,
+                province: item.province,
+                city: item.city,
+                district: item.district,
+                village: item.village,
+                postalCode: item.postal_code,
                 startDate: item.start_date ? item.start_date.split('T')[0] : '',
                 endDate: item.end_date ? item.end_date.split('T')[0] : '',
                 durationYears: item.duration_years,
@@ -139,6 +177,58 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
         if (activeTab === 'CONTRACT_ALL') fetchContracts();
     }, [activeTab]);
 
+    // --- REGION FETCHING LOGIC ---
+    useEffect(() => {
+        if (activeTab === 'CONTRACT_NEW' && formData.country === 'Indonesia') {
+            setIsLoadingRegions(true);
+            fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/provinces.json`)
+                .then(res => res.json())
+                .then(data => { setProvinces(data); setIsLoadingRegions(false); })
+                .catch(() => setIsLoadingRegions(false));
+        }
+    }, [activeTab, formData.country]);
+
+    useEffect(() => {
+        if (regionIds.prov) {
+            fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/regencies/${regionIds.prov}.json`)
+                .then(res => res.json()).then(setRegencies);
+        } else setRegencies([]);
+    }, [regionIds.prov]);
+
+    useEffect(() => {
+        if (regionIds.city) {
+            fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/districts/${regionIds.city}.json`)
+                .then(res => res.json()).then(setDistricts);
+        } else setDistricts([]);
+    }, [regionIds.city]);
+
+    useEffect(() => {
+        if (regionIds.dist) {
+            fetch(`https://www.emsifa.com/api-wilayah-indonesia/api/villages/${regionIds.dist}.json`)
+                .then(res => res.json()).then(setVillages);
+        } else setVillages([]);
+    }, [regionIds.dist]);
+
+    const handleRegionChange = (level: 'province' | 'city' | 'district' | 'village', id: string) => {
+        if (level === 'province') {
+            const name = provinces.find(p => p.id === id)?.name || '';
+            setRegionIds({ prov: id, city: '', dist: '', vill: '' });
+            setFormData(prev => ({ ...prev, province: name, city: '', district: '', village: '' }));
+        } else if (level === 'city') {
+            const name = regencies.find(r => r.id === id)?.name || '';
+            setRegionIds(prev => ({ ...prev, city: id, dist: '', vill: '' }));
+            setFormData(prev => ({ ...prev, city: name, district: '', village: '' }));
+        } else if (level === 'district') {
+            const name = districts.find(d => d.id === id)?.name || '';
+            setRegionIds(prev => ({ ...prev, dist: id, vill: '' }));
+            setFormData(prev => ({ ...prev, district: name, village: '' }));
+        } else if (level === 'village') {
+            const name = villages.find(v => v.id === id)?.name || '';
+            setRegionIds(prev => ({ ...prev, vill: id }));
+            setFormData(prev => ({ ...prev, village: name }));
+        }
+    };
+
     const generateContractNumber = async () => {
         const today = new Date();
         const dateStr = `${String(today.getDate()).padStart(2, '0')}${String(today.getMonth() + 1).padStart(2, '0')}${today.getFullYear()}`;
@@ -151,17 +241,19 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
             if (activeTab === 'CONTRACT_NEW') {
                 setShowSuccess(false);
                 const newNum = await generateContractNumber();
-                setFormData(prev => ({
-                    ...prev, id: '', contractNumber: newNum, artistName: '', 
-                    startDate: '', status: 'Pending', createdDate: new Date().toISOString().split('T')[0],
-                    ktpFile: null, npwpFile: null, signatureFile: null
-                }));
+                setFormData({
+                    id: '', contractNumber: newNum, artistName: '', legalName: '', nik: '', phone: '',
+                    country: 'Indonesia', citizenship: '', address: '', province: '', city: '', district: '', village: '', postalCode: '',
+                    startDate: '', endDate: '', durationYears: 1, royaltyRate: 70, status: 'Pending',
+                    createdDate: new Date().toISOString().split('T')[0], ktpFile: null, npwpFile: null, signatureFile: null
+                });
+                setRegionIds({ prov: '', city: '', dist: '', vill: '' });
             }
         };
         initForm();
     }, [activeTab]);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({
             ...prev,
@@ -230,8 +322,12 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.ktpFile || !formData.npwpFile || !formData.signatureFile) {
-            alert("Harap upload KTP, NPWP, dan Tanda Tangan.");
+        if (!formData.ktpFile || !formData.signatureFile) {
+            alert("Harap upload minimal KTP dan Tanda Tangan.");
+            return;
+        }
+        if (!formData.nik || !formData.legalName || !formData.phone) {
+            alert("Data diri (Nama Legal, NIK, HP) wajib diisi.");
             return;
         }
 
@@ -246,7 +342,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
         try {
             await uploadContractToGoogle(newContract);
             setShowSuccess(true);
-            fetchContracts(); // Refresh list
+            fetchContracts(); 
         } catch (err: any) {
             alert("Gagal menyimpan: " + err.message);
         } finally {
@@ -267,8 +363,10 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
     const filteredContracts = Array.isArray(contracts) ? contracts.filter(c => {
         const name = c.artistName || '';
         const num = c.contractNumber || '';
+        const legal = c.legalName || '';
         return name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-               num.toLowerCase().includes(searchTerm.toLowerCase());
+               num.toLowerCase().includes(searchTerm.toLowerCase()) ||
+               legal.toLowerCase().includes(searchTerm.toLowerCase());
     }) : [];
 
     const totalPages = Math.ceil(filteredContracts.length / ITEMS_PER_PAGE);
@@ -295,7 +393,8 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                             onClick={async () => {
                                 setShowSuccess(false);
                                 const newNum = await generateContractNumber();
-                                setFormData(prev => ({ ...prev, contractNumber: newNum, artistName: '', startDate: '', ktpFile: null, npwpFile: null, signatureFile: null }));
+                                setFormData(prev => ({ ...prev, contractNumber: newNum, artistName: '', legalName: '', nik: '', phone: '', startDate: '', ktpFile: null, npwpFile: null, signatureFile: null }));
+                                setRegionIds({ prov: '', city: '', dist: '', vill: '' });
                             }}
                             className="px-8 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors"
                         >
@@ -303,49 +402,151 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                         </button>
                     </div>
                 ) : (
-                    <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-sm border border-gray-200 p-8 max-w-4xl mx-auto animate-fade-in">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div className="col-span-2">
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Nomor Kontrak (Otomatis)</label>
-                                <input value={formData.contractNumber} readOnly className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 text-slate-500 font-mono font-bold" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Nama Partner *</label>
-                                <input name="artistName" value={formData.artistName} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl" required />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Royalty Rate (%)</label>
-                                <input type="number" name="royaltyRate" value={formData.royaltyRate} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Tanggal Mulai *</label>
-                                <input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl" required />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">Durasi (Tahun) *</label>
-                                <input type="number" name="durationYears" value={formData.durationYears} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl" required />
-                            </div>
-                            <div className="col-span-2 border-t pt-6">
-                                <h3 className="text-sm font-bold text-slate-800 mb-4">Dokumen Pendukung</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {['ktpFile', 'npwpFile', 'signatureFile'].map((field: any) => (
-                                        <div key={field} className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer">
-                                            <input type="file" onChange={(e) => handleFileSelect(e, field)} className="hidden" id={`upload-${field}`} accept="image/*" />
-                                            <label htmlFor={`upload-${field}`} className="cursor-pointer block">
-                                                <div className="mx-auto w-10 h-10 bg-white rounded-full flex items-center justify-center mb-2 shadow-sm">
-                                                    {(formData as any)[field] ? <CheckCircle className="text-green-500" /> : <Upload className="text-slate-400" />}
-                                                </div>
-                                                <span className="text-xs font-bold text-slate-700">{field.toUpperCase()}</span>
-                                            </label>
-                                        </div>
-                                    ))}
+                    <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-sm border border-gray-200 p-8 max-w-5xl mx-auto animate-fade-in">
+                        
+                        {/* SECTION 1: INFO KONTRAK */}
+                        <div className="mb-8">
+                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                <FileSignature size={20} className="text-blue-500" /> Detail Kontrak
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nomor Kontrak</label>
+                                    <input value={formData.contractNumber} readOnly className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-gray-50 text-slate-500 font-mono font-bold" />
+                                </div>
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nama Panggung (Artist Name) *</label>
+                                    <input name="artistName" value={formData.artistName} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required placeholder="Nama untuk rilis..." />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tanggal Mulai *</label>
+                                    <input type="date" name="startDate" value={formData.startDate} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Durasi (Tahun) *</label>
+                                        <input type="number" name="durationYears" value={formData.durationYears} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Royalty (%)</label>
+                                        <input type="number" name="royaltyRate" value={formData.royaltyRate} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                        <button type="submit" disabled={isSubmitting} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg">
-                            {isSubmitting ? <Loader2 className="animate-spin" /> : <Plus />}
-                            {isSubmitting ? 'Mengunggah...' : 'Tambah Kontrak'}
-                        </button>
+
+                        {/* SECTION 2: DATA DIRI & ALAMAT */}
+                        <div className="mb-8">
+                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b pb-2">
+                                <User size={20} className="text-blue-500" /> Data Diri & Alamat
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nama Lengkap (Sesuai KTP) *</label>
+                                    <input name="legalName" value={formData.legalName} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">NIK (No. KTP) *</label>
+                                    <input name="nik" value={formData.nik} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">No. HP / WhatsApp *</label>
+                                    <input name="phone" value={formData.phone} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kewarganegaraan</label>
+                                    <input name="citizenship" value={formData.citizenship} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" placeholder="Indonesia" />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Alamat Lengkap (Jalan, No, RT/RW) *</label>
+                                    <textarea name="address" value={formData.address} onChange={handleInputChange} rows={2} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none" required />
+                                </div>
+                                
+                                {/* REGION SELECTORS */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Negara</label>
+                                    <select name="country" value={formData.country} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white">
+                                        <option value="Indonesia">Indonesia</option>
+                                        <option value="Malaysia">Malaysia</option>
+                                        <option value="Singapore">Singapore</option>
+                                        <option value="Others">Lainnya</option>
+                                    </select>
+                                </div>
+
+                                {formData.country === 'Indonesia' ? (
+                                    <>
+                                        <div className="relative">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Provinsi</label>
+                                            <select value={regionIds.prov} onChange={(e) => handleRegionChange('province', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white disabled:bg-gray-50" disabled={isLoadingRegions && provinces.length === 0}>
+                                                <option value="">-- Pilih Provinsi --</option>
+                                                {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kota / Kabupaten</label>
+                                            <select value={regionIds.city} onChange={(e) => handleRegionChange('city', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white disabled:bg-gray-50" disabled={!regionIds.prov}>
+                                                <option value="">-- Pilih Kota --</option>
+                                                {regencies.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kecamatan</label>
+                                            <select value={regionIds.dist} onChange={(e) => handleRegionChange('district', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white disabled:bg-gray-50" disabled={!regionIds.city}>
+                                                <option value="">-- Pilih Kecamatan --</option>
+                                                {districts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kelurahan</label>
+                                            <select value={regionIds.vill} onChange={(e) => handleRegionChange('village', e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl bg-white disabled:bg-gray-50" disabled={!regionIds.dist}>
+                                                <option value="">-- Pilih Kelurahan --</option>
+                                                {villages.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                            </select>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Provinsi/State</label><input name="province" value={formData.province} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl"/></div>
+                                        <div><label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kota</label><input name="city" value={formData.city} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl"/></div>
+                                    </>
+                                )}
+                                
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Kode Pos</label>
+                                    <input name="postalCode" value={formData.postalCode} onChange={handleInputChange} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SECTION 3: DOKUMEN */}
+                        <div className="border-t pt-6">
+                            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                                <Upload size={20} className="text-blue-500" /> Dokumen Pendukung
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {['ktpFile', 'npwpFile', 'signatureFile'].map((field: any) => (
+                                    <div key={field} className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${(formData as any)[field] ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}>
+                                        <input type="file" onChange={(e) => handleFileSelect(e, field)} className="hidden" id={`upload-${field}`} accept="image/*" />
+                                        <label htmlFor={`upload-${field}`} className="cursor-pointer block">
+                                            <div className="mx-auto w-12 h-12 bg-white rounded-full flex items-center justify-center mb-3 shadow-sm">
+                                                {(formData as any)[field] ? <CheckCircle className="text-green-500" size={24} /> : <Upload className="text-slate-400" size={24} />}
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-700 block uppercase">
+                                                {field === 'ktpFile' ? 'FOTO KTP' : field === 'npwpFile' ? 'FOTO NPWP' : 'TANDA TANGAN'}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">{(formData as any)[field] ? 'Sudah Diupload' : 'Klik untuk upload'}</span>
+                                        </label>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="mt-8 pt-6 border-t">
+                            <button type="submit" disabled={isSubmitting} className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg hover:shadow-blue-500/30 transition-all">
+                                {isSubmitting ? <Loader2 className="animate-spin" /> : <Plus />}
+                                {isSubmitting ? 'Menyimpan Data...' : 'Simpan Kontrak Baru'}
+                            </button>
+                        </div>
                     </form>
                 )
             )}
@@ -354,7 +555,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                 <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[500px] animate-fade-in">
                     <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                          <div className="relative w-full md:w-96">
-                             <input placeholder="Cari partner..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl" />
+                             <input placeholder="Cari partner, nama legal, atau no kontrak..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl" />
                              <Search className="absolute left-3 top-3 text-slate-400" size={18} />
                          </div>
                          <div className="font-bold text-blue-600">Total: {contracts.length}</div>
@@ -364,7 +565,9 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                             <thead className="bg-slate-50 border-b">
                                 <tr>
                                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">No. Kontrak</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Nama Partner</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Nama Panggung</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Nama Legal (KTP)</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Wilayah</th>
                                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Status</th>
                                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Aksi</th>
                                 </tr>
@@ -372,8 +575,12 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                             <tbody className="divide-y divide-gray-100">
                                 {displayedContracts.map((contract) => (
                                     <tr key={contract.id} className="hover:bg-slate-50">
-                                        <td className="px-6 py-4 font-mono text-xs">{contract.contractNumber}</td>
-                                        <td className="px-6 py-4 font-bold">{contract.artistName}</td>
+                                        <td className="px-6 py-4 font-mono text-xs text-slate-600">{contract.contractNumber}</td>
+                                        <td className="px-6 py-4 font-bold text-slate-800">{contract.artistName}</td>
+                                        <td className="px-6 py-4 text-sm text-slate-600">{contract.legalName || '-'}</td>
+                                        <td className="px-6 py-4 text-xs text-slate-500">
+                                            {contract.city ? `${contract.city}, ` : ''}{contract.province || '-'}
+                                        </td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${contract.status === 'Selesai' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                                                 {contract.status}
@@ -387,7 +594,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                                 ))}
                                 {displayedContracts.length === 0 && !isLoading && (
                                     <tr>
-                                        <td colSpan={4} className="p-12 text-center text-slate-400 italic">Data tidak ditemukan.</td>
+                                        <td colSpan={6} className="p-12 text-center text-slate-400 italic">Data tidak ditemukan.</td>
                                     </tr>
                                 )}
                             </tbody>
@@ -398,12 +605,28 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
 
             {detailModalOpen && selectedContract && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
-                        <div className="p-6 border-b flex justify-between items-center bg-slate-50">
-                            <h3 className="text-xl font-bold">{selectedContract.artistName}</h3>
+                    <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                        <div className="p-6 border-b flex justify-between items-center bg-slate-50 flex-shrink-0">
+                            <div>
+                                <h3 className="text-xl font-bold">{selectedContract.artistName}</h3>
+                                <p className="text-sm text-slate-500">{selectedContract.contractNumber}</p>
+                            </div>
                             <button onClick={() => setDetailModalOpen(false)}><X /></button>
                         </div>
-                        <div className="p-6 space-y-6">
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-6 text-sm">
+                                <div><span className="font-bold text-slate-500 block text-xs uppercase mb-1">Nama Legal</span>{selectedContract.legalName || '-'}</div>
+                                <div><span className="font-bold text-slate-500 block text-xs uppercase mb-1">NIK</span>{selectedContract.nik || '-'}</div>
+                                <div><span className="font-bold text-slate-500 block text-xs uppercase mb-1">No. HP</span>{selectedContract.phone || '-'}</div>
+                                <div><span className="font-bold text-slate-500 block text-xs uppercase mb-1">Royalty</span>{selectedContract.royaltyRate}%</div>
+                                <div className="col-span-2">
+                                    <span className="font-bold text-slate-500 block text-xs uppercase mb-1">Alamat Lengkap</span>
+                                    {selectedContract.address}, {selectedContract.village}, {selectedContract.district}, {selectedContract.city}, {selectedContract.province}, {selectedContract.postalCode}
+                                </div>
+                            </div>
+                            
+                            <hr className="border-gray-100 my-4" />
+                            
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Update Status Kontrak</label>
                                 <select 
@@ -418,7 +641,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                                 </select>
                             </div>
                         </div>
-                        <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
+                        <div className="p-6 border-t bg-gray-50 flex justify-end gap-3 flex-shrink-0">
                              <button onClick={() => setDetailModalOpen(false)} className="px-6 py-2.5 font-bold">Batal</button>
                              <button onClick={handleSaveDetail} disabled={isSubmitting} className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg flex items-center gap-2">
                                  {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
@@ -440,8 +663,8 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                                 rotation={rotation}
                                 aspect={
                                     cropTargetField === 'signatureFile' 
-                                    ? 3 / 1 // Aspect ratio untuk tanda tangan lebih lebar
-                                    : 8.56 / 5.398 // Standar ID Card: 8.56 cm x 5.398 cm (~1.585)
+                                    ? 3 / 1 
+                                    : 8.56 / 5.398 
                                 }
                                 onCropChange={setCrop} 
                                 onCropComplete={onCropComplete}
@@ -449,61 +672,29 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
                                 onRotationChange={setRotation}
                             />
                         </div>
-                        {/* Controls Toolbar */}
                         <div className="bg-white p-6 border-t border-gray-100 flex flex-col gap-4">
                             <div className="flex flex-col md:flex-row items-center gap-6">
                                 <div className="flex-1 w-full space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider">
-                                            <ZoomIn size={14} /> Zoom
-                                        </label>
+                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider"><ZoomIn size={14} /> Zoom</label>
                                         <span className="text-[10px] font-mono text-slate-400">{zoom.toFixed(1)}x</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        value={zoom}
-                                        min={1}
-                                        max={3}
-                                        step={0.1}
-                                        onChange={(e) => setZoom(Number(e.target.value))}
-                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                    />
+                                    <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(Number(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
                                 </div>
                                 <div className="flex-1 w-full space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider">
-                                            <RotateCw size={14} /> Rotasi
-                                        </label>
+                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider"><RotateCw size={14} /> Rotasi</label>
                                         <span className="text-[10px] font-mono text-slate-400">{rotation}°</span>
                                     </div>
-                                    <input
-                                        type="range"
-                                        value={rotation}
-                                        min={0}
-                                        max={360}
-                                        step={1}
-                                        onChange={(e) => setRotation(Number(e.target.value))}
-                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                                    />
+                                    <input type="range" value={rotation} min={0} max={360} step={1} onChange={(e) => setRotation(Number(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
                                 </div>
                             </div>
-                            
                             <div className="flex justify-between items-center mt-2">
-                                <p className="text-[10px] text-slate-400 italic">Geser dan atur gambar agar sesuai dengan bingkai ID Card.</p>
+                                <p className="text-[10px] text-slate-400 italic">Geser dan atur gambar agar sesuai.</p>
                                 <div className="flex gap-3">
-                                    <button 
-                                        onClick={() => setCropModalOpen(false)} 
-                                        className="px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors text-sm"
-                                    >
-                                        Batal
-                                    </button>
-                                    <button 
-                                        onClick={handleCropSave} 
-                                        disabled={isProcessingCrop}
-                                        className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all flex items-center gap-2 text-sm"
-                                    >
-                                        {isProcessingCrop ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                                        Simpan Potongan
+                                    <button onClick={() => setCropModalOpen(false)} className="px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors text-sm">Batal</button>
+                                    <button onClick={handleCropSave} disabled={isProcessingCrop} className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2 text-sm">
+                                        {isProcessingCrop ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />} Simpan Potongan
                                     </button>
                                 </div>
                             </div>

@@ -1,4 +1,5 @@
 
+
 export interface TrackArtist {
   name: string;
   role: string;
@@ -15,7 +16,7 @@ export interface AnalysisSegment {
   end: number;
   status: 'CLEAN' | 'AI_DETECTED' | 'COPYRIGHT_MATCH';
   description?: string;
-  confidence: number; // 0-100
+  confidence: number; 
 }
 
 export interface CopyrightMatch {
@@ -30,54 +31,39 @@ export interface CopyrightMatch {
 export interface AnalysisResult {
   isAnalyzing: boolean;
   isComplete: boolean;
-  aiProbability: number; // 0-100
+  aiProbability: number;
   copyrightMatches: CopyrightMatch[];
-  segments: AnalysisSegment[]; // Per 10 seconds
+  segments: AnalysisSegment[];
 }
 
 export interface Track {
   id: string;
-  // Files
   audioFile?: File | null;
   audioClip?: File | null;
   videoFile?: File | null;
-  
-  // Metadata
   trackNumber: string;
   releaseDate: string;
   isrc: string;
   title: string;
-  duration: string; // MM:SS
-
-  // Artists
+  duration: string;
   artists: TrackArtist[];
-
-  // Details
-  instrumental: string; // 'Yes' | 'No'
+  instrumental: string; 
   genre: string;
-  explicitLyrics: string; // 'Yes', 'No', 'Clean'
+  explicitLyrics: string; 
   composer: string;
   lyricist: string;
   lyrics: string;
-
-  // Additional Contributors
   contributors: TrackContributor[];
-  
-  // Optional: Store analysis if we want to persist it
   analysis?: AnalysisResult;
 }
 
 export interface ReleaseData {
-  id?: string; // Unique ID for the list
+  id?: string;
   status?: 'Pending' | 'Processing' | 'Live' | 'Rejected' | 'Draft';
   submissionDate?: string;
-  aggregator?: string; // New Field
-  
-  // Rejection Data
+  aggregator?: string;
   rejectionReason?: string;
   rejectionDescription?: string;
-
-  // Step 1
   coverArt: File | null;
   upc: string; 
   title: string;
@@ -85,18 +71,12 @@ export interface ReleaseData {
   primaryArtists: string[];
   label: string;
   version: string;
-
-  // Step 2
   tracks: Track[];
-
-  // Step 3
   isNewRelease: boolean;
   originalReleaseDate: string;
   plannedReleaseDate: string;
-  selectedPlatforms?: string[]; // Added: Platform selection
-  socialPlatforms?: string[]; // Added: Social Platform selection
-  
-  // TikTok Pre-release
+  selectedPlatforms?: string[];
+  socialPlatforms?: string[];
   tiktokPreRelease?: boolean;
   tiktokPreReleaseDate?: string;
   tiktokPreReleaseTime?: string;
@@ -111,29 +91,22 @@ export enum Step {
 
 export type ReleaseType = 'SINGLE' | 'ALBUM';
 
-// --- PUBLISHING TYPES ---
-
 export interface Songwriter {
   id: string;
   name: string;
   role: 'Author' | 'Composer' | 'Author & Composer' | 'Arranger';
-  share: number; // Percentage 0-100
+  share: number;
 }
 
 export interface SavedSongwriter {
   id: string;
-  // Display Name (Computed)
   name: string; 
-  
-  // Personal Details
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
-  nik: string; // KTP
-  npwp: string; // Tax ID
-  
-  // Address
+  nik: string; 
+  npwp: string; 
   country: string;
   province: string;
   city: string;
@@ -142,25 +115,20 @@ export interface SavedSongwriter {
   postalCode: string;
   address1: string;
   address2: string;
-
-  // Bank Details
   bankName: string;
   bankBranch: string;
   accountName: string;
   accountNumber: string;
-
-  // Legacy/Optional
   publisher?: string;
   ipi?: string;
 }
 
 export interface PublishingRegistration {
-  id?: string; // Added for list view
-  status?: 'Pending' | 'Approved' | 'Rejected'; // Added for list view
-  submissionDate?: string; // Added for list view
-  
+  id?: string; 
+  status?: 'Pending' | 'Approved' | 'Rejected';
+  submissionDate?: string; 
   title: string;
-  songCode: string; // New Field
+  songCode: string; 
   otherTitle: string;
   sampleLink: string;
   rightsGranted: {
@@ -177,17 +145,29 @@ export interface PublishingRegistration {
   region: string;
   iswc: string;
   isrc: string;
-  lyrics: string; // New Field
+  lyrics: string; 
   note: string;
   songwriters: Songwriter[];
 }
 
-// --- CONTRACT TYPES ---
-
 export interface Contract {
   id: string;
   contractNumber: string; 
-  artistName: string; 
+  artistName: string; // Nama Panggung
+  
+  // Data Diri Baru
+  legalName?: string; // Nama Sesuai KTP
+  nik?: string;
+  phone?: string;
+  country?: string;
+  citizenship?: string;
+  address?: string;
+  province?: string;
+  city?: string;
+  district?: string;
+  village?: string;
+  postalCode?: string;
+
   startDate: string;
   endDate: string; 
   durationYears: number; 
@@ -195,11 +175,7 @@ export interface Contract {
   status: 'Pending' | 'Review' | 'Proses' | 'Selesai';
   createdDate: string;
   
-  // Files
   ktpFile: File | null;
   npwpFile: File | null;
   signatureFile: File | null;
-  
-  // Final Document
-  signedContractFile?: File | null;
 }
