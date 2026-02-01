@@ -2,9 +2,26 @@
 import { ReleaseData, Contract } from '../types';
 
 export const checkSystemHealth = async () => {
-  const response = await fetch('/api/health-check');
-  if (!response.ok) throw new Error('API server tidak merespon (Error ' + response.status + ')');
-  return await response.json();
+  try {
+    const response = await fetch('/api/health-check', {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+    });
+    
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server mengirim balasan HTML, bukan JSON. Ini biasanya karena kesalahan routing atau .htaccess di Plesk.");
+    }
+
+    if (!response.ok) {
+        throw new Error(`Server merespon dengan status ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (err: any) {
+    console.error("Health Check Failed:", err);
+    throw err;
+  }
 };
 
 export const getAllReleases = async (): Promise<ReleaseData[]> => {

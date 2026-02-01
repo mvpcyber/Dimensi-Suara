@@ -4,7 +4,6 @@ import express from 'express';
 import mysql from 'mysql2/promise';
 import cors from 'cors';
 import path from 'path';
-import multer from 'multer';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
@@ -13,12 +12,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// Plesk biasanya memberikan port via environment variable
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
 
-// --- DATABASE CONNECTION (Prioritaskan Environment Variables Plesk) ---
+// --- DATABASE CONNECTION ---
+// Mengambil dari Environment Variables Plesk sesuai screenshot Anda
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     user: process.env.DB_USER || 'dimensi_suara_db',
@@ -27,23 +28,22 @@ const dbConfig = {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    connectTimeout: 20000 
+    connectTimeout: 30000 
 };
 
-// Inisialisasi Pool
 const db = mysql.createPool(dbConfig);
 
-// --- GOOGLE DRIVE AUTH (Perbaikan Path Domain) ---
+// --- GOOGLE AUTH ---
 async function getGoogleAuth() {
+    // Mencari di beberapa lokasi umum Plesk
     const possiblePaths = [
         path.join(__dirname, 'service-account.json'),
         path.join(process.cwd(), 'service-account.json'),
-        // Perbaikan typo: records (dengan 's') sesuai screenshot Plesk anda
         '/var/www/vhosts/ruangdimensirecords.com/cms.ruangdimensirecords.com/service-account.json'
     ];
     
     let credentials;
-    let foundPath = '';
+    let foundPath = 'Tidak ditemukan';
 
     for (const filePath of possiblePaths) {
         if (fs.existsSync(filePath)) {
@@ -52,7 +52,7 @@ async function getGoogleAuth() {
                 foundPath = filePath;
                 break;
             } catch (e) {
-                console.error(`Gagal baca file di ${filePath}:`, e.message);
+                console.error(`Gagal memproses JSON di ${filePath}:`, e.message);
             }
         }
     }
@@ -67,28 +67,28 @@ async function getGoogleAuth() {
     return { auth, foundPath };
 }
 
-// --- API ROUTES (DIDEFINISIKAN SEBELUM STATIC FILES) ---
+// --- API ROUTES (Wajib di atas Static Files) ---
 
 app.get('/api/health-check', async (req, res) => {
+    console.log('Health check requested');
     const status = {
-        database: { connected: false, message: 'Mengecek...' },
-        googleDrive: { connected: false, message: 'Mengecek...', email: '' },
-        fileSystem: { serviceAccountExists: false, pathChecked: '' }
+        database: { connected: false, message: 'Menghubungkan...' },
+        googleDrive: { connected: false, message: 'Menunggu...', email: '' },
+        fileSystem: { serviceAccountExists: false, pathChecked: '' },
+        serverTime: new Date().toISOString()
     };
 
-    // 1. Cek MySQL
     try {
         const [rows] = await db.query('SELECT 1 as ok');
         status.database.connected = true;
-        status.database.message = 'Koneksi MySQL Berhasil (127.0.0.1)';
+        status.database.message = `Terhubung ke MySQL (${dbConfig.host})`;
     } catch (err) {
-        status.database.message = `Gagal: ${err.message}`;
+        status.database.message = `MySQL Error: ${err.message}`;
     }
 
-    // 2. Cek File & Drive
-    const { auth, foundPath, pathChecked } = await getGoogleAuth();
+    const { auth, foundPath } = await getGoogleAuth();
     status.fileSystem.serviceAccountExists = !!auth;
-    status.fileSystem.pathChecked = foundPath || pathChecked;
+    status.fileSystem.pathChecked = foundPath;
 
     if (auth) {
         try {
@@ -97,40 +97,32 @@ app.get('/api/health-check', async (req, res) => {
             status.googleDrive.email = creds.client_email;
 
             const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-            if (!folderId) {
-                status.googleDrive.message = 'GOOGLE_DRIVE_FOLDER_ID belum diset di Plesk.';
-            } else {
+            if (folderId) {
                 const folder = await drive.files.get({ fileId: folderId });
                 status.googleDrive.connected = true;
-                status.googleDrive.message = `Akses Drive Oke: "${folder.data.name}"`;
+                status.googleDrive.message = `Drive OK: ${folder.data.name}`;
+            } else {
+                status.googleDrive.message = 'ID Folder Drive belum diatur di Plesk.';
             }
         } catch (err) {
-            status.googleDrive.message = `Drive Error: ${err.message}`;
+            status.googleDrive.message = `Drive API Error: ${err.message}`;
         }
     } else {
-        status.googleDrive.message = 'File JSON tidak ditemukan atau rusak.';
+        status.googleDrive.message = 'File service-account.json tidak ditemukan.';
     }
 
     res.json(status);
 });
 
-// GET RELEASES (DATABASE)
 app.get('/api/releases', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM releases ORDER BY created_at DESC');
-        // Map data agar sesuai dengan kebutuhan frontend
-        const mapped = rows.map(r => ({
-            ...r,
-            primaryArtists: [r.artist_name],
-            tracks: [] // Dalam implementasi nyata, lakukan join atau query kedua
-        }));
-        res.json(mapped);
+        res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// GET CONTRACTS (DATABASE)
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -140,35 +132,27 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
-// SIMPAN KONTRAK (DATABASE)
-app.post('/api/contracts', async (req, res) => {
-    try {
-        const c = req.body;
-        const [result] = await db.query(
-            `INSERT INTO contracts (contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [c.contractNumber, c.artistName, c.type, c.startDate, c.endDate, c.durationYears, c.royaltyRate, c.status, c.notes || '']
-        );
-        res.json({ success: true, id: result.insertId });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+// --- SERVE FRONTEND (STATIC) ---
+const distPath = path.resolve(__dirname, 'dist');
+
+// Pastikan rute API tidak masuk ke catch-all index.html
+app.use(express.static(distPath));
+
+app.get('*', (req, res) => {
+    // Jika path diawali /api tapi tidak cocok dengan rute di atas, beri JSON 404, bukan HTML
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: `API endpoint ${req.path} tidak ditemukan.` });
+    }
+    // Kirim index.html untuk rute frontend (SPA)
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+    } else {
+        res.status(404).send('Build frontend tidak ditemukan. Jalankan npm run build.');
     }
 });
 
-// --- SERVE STATIC FILES (FRONTEND) ---
-const distPath = path.resolve(__dirname, 'dist');
-if (fs.existsSync(distPath)) {
-    app.use(express.static(distPath));
-    // Catch-all: Kirim index.html untuk rute yang bukan API
-    app.get('*', (req, res) => {
-        if (!req.path.startsWith('/api')) {
-            res.sendFile(path.join(distPath, 'index.html'));
-        } else {
-            res.status(404).json({ error: 'Endpoint API tidak ditemukan.' });
-        }
-    });
-}
-
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di port ${PORT}`);
+    console.log(`📂 Document Root: ${distPath}`);
 });
