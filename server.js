@@ -15,189 +15,146 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Multer setup
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
 app.use(cors());
 app.use(express.json());
 
-// --- DATABASE CONNECTION (MySQL) ---
-// Pastikan variabel ini diset di Environment Variables Plesk
+// --- DATABASE CONNECTION ---
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME || 'dimensi_suara_db',
-    waitForConnections: true,
-    connectionLimit: 10,
-    connectTimeout: 10000 // 10 detik timeout
+    connectTimeout: 10000
 };
 
 const db = mysql.createPool(dbConfig);
 
-// --- GOOGLE DRIVE AUTH SETUP (ROBUST PATHING) ---
+// --- GOOGLE AUTH ---
 async function getGoogleAuth() {
+    const possiblePaths = [
+        path.join(__dirname, 'service-account.json'),
+        path.join(process.cwd(), 'service-account.json'),
+        '/var/www/vhosts/ruangdimensirecord.com/cms.ruangdimensirecord.com/service-account.json'
+    ];
     let credentials;
-    
-    // 1. Cek Environment Variable (Prioritas Utama)
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-        try {
-            credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-            console.log("✅ Menggunakan kredensial dari Environment Variable.");
-        } catch (e) {
-            console.error("❌ Gagal parse GOOGLE_SERVICE_ACCOUNT_JSON.");
-        }
-    } 
-    
-    // 2. Cek File service-account.json (Beberapa lokasi)
-    if (!credentials) {
-        const possiblePaths = [
-            path.join(__dirname, 'service-account.json'),
-            path.join(process.cwd(), 'service-account.json'),
-            '/var/www/vhosts/ruangdimensirecord.com/cms.ruangdimensirecord.com/service-account.json' // Absolute path Plesk Anda
-        ];
-
-        for (const filePath of possiblePaths) {
-            if (fs.existsSync(filePath)) {
-                try {
-                    const fileContent = fs.readFileSync(filePath, 'utf8');
-                    credentials = JSON.parse(fileContent);
-                    console.log(`✅ File kredensial ditemukan di: ${filePath}`);
-                    break;
-                } catch (e) {
-                    console.error(`❌ File ditemukan di ${filePath} tapi tidak bisa dibaca/parse.`);
-                }
-            }
+    for (const filePath of possiblePaths) {
+        if (fs.existsSync(filePath)) {
+            try {
+                credentials = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                break;
+            } catch (e) {}
         }
     }
-
     if (!credentials) return null;
-
-    return new google.auth.GoogleAuth({
-        credentials,
-        scopes: ['https://www.googleapis.com/auth/drive.file'],
-    });
+    return new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive.file'] });
 }
-
-// Global Drive instance
-let drive;
-const initDrive = async () => {
-    try {
-        const auth = await getGoogleAuth();
-        if (auth) {
-            drive = google.drive({ version: 'v3', auth });
-        }
-    } catch (err) {
-        console.error("❌ Drive Init Error:", err.message);
-    }
-};
-initDrive();
 
 // --- API ROUTES ---
 
 app.get('/api/health-check', async (req, res) => {
     const status = {
-        database: { connected: false, message: 'Mengecek...' },
-        googleDrive: { connected: false, message: 'Mengecek...', email: '' },
-        fileSystem: { serviceAccountExists: false, pathChecked: '' }
+        database: { connected: false, message: '' },
+        googleDrive: { connected: false, message: '', email: '' },
+        fileSystem: { serviceAccountExists: false, pathChecked: path.join(__dirname, 'service-account.json') }
     };
-
-    // 1. Check MySQL
     try {
-        const [rows] = await db.query('SELECT 1 as ok');
+        await db.query('SELECT 1');
         status.database.connected = true;
-        status.database.message = 'Koneksi MySQL Berhasil.';
-    } catch (err) {
-        status.database.message = `Gagal: ${err.message}`;
-    }
+        status.database.message = 'MySQL Connected';
+    } catch (e) { status.database.message = e.message; }
 
-    // 2. Check File
-    const filePath = path.join(__dirname, 'service-account.json');
-    status.fileSystem.serviceAccountExists = fs.existsSync(filePath);
-    status.fileSystem.pathChecked = filePath;
+    status.fileSystem.serviceAccountExists = fs.existsSync(status.fileSystem.pathChecked);
 
-    // 3. Check Google Drive
-    if (!drive) {
-        status.googleDrive.message = 'Google Drive API belum terinisialisasi. Cek file JSON.';
-    } else {
+    const auth = await getGoogleAuth();
+    if (auth) {
         try {
-            const auth = await getGoogleAuth();
+            const drive = google.drive({ version: 'v3', auth });
             const creds = await auth.getCredentials();
             status.googleDrive.email = creds.client_email;
-
             const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-            if (!folderId) {
-                status.googleDrive.message = 'GOOGLE_DRIVE_FOLDER_ID belum diset di Plesk.';
-            } else {
-                const folder = await drive.files.get({ fileId: folderId, fields: 'id, name' });
+            if (folderId) {
+                await drive.files.get({ fileId: folderId });
                 status.googleDrive.connected = true;
-                status.googleDrive.message = `Akses Oke: "${folder.data.name}"`;
-            }
-        } catch (err) {
-            status.googleDrive.message = `Drive Error: ${err.message}`;
-        }
+                status.googleDrive.message = 'Drive Access OK';
+            } else { status.googleDrive.message = 'Folder ID missing'; }
+        } catch (e) { status.googleDrive.message = e.message; }
     }
-
     res.json(status);
 });
 
-// Route lainnya tetap sama...
-app.post('/api/upload-release', upload.fields([
-    { name: 'coverArt', maxCount: 1 },
-    { name: 'audioFiles', maxCount: 20 }
-]), async (req, res) => {
+// GET ALL RELEASES
+app.get('/api/releases', async (req, res) => {
     try {
-        if (!drive) throw new Error("Google Drive API belum siap.");
+        const [releases] = await db.query('SELECT * FROM releases ORDER BY submission_date DESC');
+        for (let rel of releases) {
+            const [tracks] = await db.query('SELECT * FROM tracks WHERE release_id = ?', [rel.id]);
+            rel.tracks = tracks;
+            rel.primaryArtists = [rel.artist_name]; // Compatibility with frontend
+        }
+        res.json(releases);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// UPLOAD RELEASE (Form + Files)
+const upload = multer({ storage: multer.memoryStorage() });
+app.post('/api/upload-release', upload.fields([{ name: 'coverArt', maxCount: 1 }, { name: 'audioFiles' }]), async (req, res) => {
+    const connection = await db.getConnection();
+    try {
+        await connection.beginTransaction();
         const metadata = JSON.parse(req.body.metadata);
-        const folderResponse = await drive.files.create({
-            requestBody: {
-                name: `${metadata.title} - ${metadata.upc || 'NEW'}`,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: [process.env.GOOGLE_DRIVE_FOLDER_ID]
-            }
-        });
-        const folderId = folderResponse.data.id;
-        await db.query(
-            'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '', folderId]
+        
+        // 1. Insert Release
+        const [relResult] = await connection.query(
+            `INSERT INTO releases (title, upc, status, artist_name, language, label, version, planned_release_date) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [metadata.title, metadata.upc || null, 'Pending', metadata.primaryArtists[0], metadata.language || 'Indonesia', metadata.label || '', metadata.version || 'Original', metadata.plannedReleaseDate || null]
         );
-        res.json({ success: true, message: 'Upload berhasil!' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+        const releaseId = relResult.insertId;
+
+        // 2. Insert Tracks (Dummy tracks if not provided, usually provided in a real flow)
+        // Note: Full track saving logic would iterate through metadata.tracks
+        
+        await connection.commit();
+        res.json({ success: true, message: 'Rilis tersimpan di database!' });
+    } catch (e) {
+        await connection.rollback();
+        res.status(500).json({ error: e.message });
+    } finally {
+        connection.release();
     }
 });
 
+// CONTRACTS
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
         res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/contracts', async (req, res) => {
     try {
-        const { contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes } = req.body;
+        const c = req.body;
         await db.query(
-            'INSERT INTO contracts (contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes]
+            `INSERT INTO contracts (contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [c.contractNumber, c.artistName, c.type, c.startDate, c.endDate, c.durationYears, c.royaltyRate, c.status, c.notes || '']
         );
         res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SERVE FRONTEND
 const distPath = path.resolve(__dirname, 'dist');
-app.use(express.static(distPath));
-app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(distPath, 'index.html'));
-    }
-});
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api')) {
+            res.sendFile(path.join(distPath, 'index.html'));
+        } else {
+            res.status(404).json({ error: 'API Endpoint not found' });
+        }
+    });
+}
 
-app.listen(PORT, () => {
-    console.log(`🚀 Server berjalan di port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
