@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Multer setup (Store files in memory before uploading to Google Drive)
+// Multer setup
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
@@ -23,6 +23,7 @@ app.use(cors());
 app.use(express.json());
 
 // --- DATABASE CONNECTION ---
+// Pastikan variabel ENV ini sudah diisi di hosting/Plesk Anda
 const db = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
@@ -33,7 +34,6 @@ const db = mysql.createPool({
 });
 
 // --- GOOGLE AUTH SETUP ---
-// Gunakan Service Account Credentials dari .env (dalam format JSON string)
 const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}'),
     scopes: [
@@ -66,8 +66,7 @@ app.post('/api/upload-release', upload.fields([
 ]), async (req, res) => {
     try {
         const metadata = JSON.parse(req.body.metadata);
-        console.log('Processing release:', metadata.title);
-
+        
         // 1. Create Folder on Drive
         const folderResponse = await drive.files.create({
             requestBody: {
@@ -78,18 +77,19 @@ app.post('/api/upload-release', upload.fields([
         });
         const folderId = folderResponse.data.id;
 
-        // 2. Upload Files
+        // 2. Upload Cover to Drive
+        let coverDriveId = '';
         if (req.files.coverArt) {
-            await uploadToDrive(req.files.coverArt[0].buffer, `Cover-${metadata.title}.jpg`, 'image/jpeg', folderId);
+            coverDriveId = await uploadToDrive(req.files.coverArt[0].buffer, `Cover-${metadata.title}.jpg`, 'image/jpeg', folderId);
         }
 
-        // 3. Save to MySQL
+        // 3. Save Release to MySQL
         const [result] = await db.query(
-            'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator) VALUES (?, ?, ?, ?, ?, ?)',
-            [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '']
+            'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '', folderId]
         );
 
-        // 4. Update Google Sheets
+        // 4. Update Google Sheets for Log/Backup
         await sheets.spreadsheets.values.append({
             spreadsheetId: process.env.GOOGLE_SHEET_ID,
             range: 'Sheet1!A:G',
@@ -99,14 +99,14 @@ app.post('/api/upload-release', upload.fields([
             }
         });
 
-        res.json({ success: true, message: 'Release uploaded and synced!' });
+        res.json({ success: true, message: 'Data tersimpan di MySQL & Google Drive!' });
     } catch (err) {
-        console.error(err);
+        console.error('Error during upload:', err);
         res.status(500).json({ error: err.message });
     }
 });
 
-// --- API: CONTRACTS ---
+// --- API: GET CONTRACTS ---
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -116,6 +116,7 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
+// --- API: ADD CONTRACT ---
 app.post('/api/contracts', async (req, res) => {
     try {
         const { contract_number, artist_name, type, start_date, end_date, duration_years, royalty_rate, status, notes } = req.body;
@@ -136,5 +137,5 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🚀 Server berjalan di port ${PORT}`);
 });
