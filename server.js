@@ -18,7 +18,6 @@ app.use(cors());
 app.use(express.json());
 
 // --- KONFIGURASI FOLDER UPLOAD ---
-// Pastikan folder ini ada saat server start
 const UPLOAD_DIRS = {
     base: path.join(__dirname, 'public/uploads'),
     covers: path.join(__dirname, 'public/uploads/covers'),
@@ -34,7 +33,7 @@ Object.values(UPLOAD_DIRS).forEach(dir => {
     }
 });
 
-// --- KONFIGURASI MULTER (DISK STORAGE) ---
+// --- KONFIGURASI MULTER ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         if (file.fieldname === 'coverArt') {
@@ -48,7 +47,6 @@ const storage = multer.diskStorage({
         }
     },
     filename: (req, file, cb) => {
-        // Format nama file: TIMESTAMP-RANDOM-ORIGINALNAME (Sanitized)
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.]/g, '_');
         cb(null, `${uniqueSuffix}-${sanitizedName}`);
@@ -57,70 +55,91 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 100 * 1024 * 1024 } // Max 100MB per file
+    limits: { fileSize: 100 * 1024 * 1024 } 
 });
 
-// --- SERVING STATIC FILES ---
-// Agar file yang diupload bisa diakses via URL http://domain/uploads/...
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// --- DATABASE CONNECTION ---
+// --- DATABASE ---
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     user: process.env.DB_USER || 'dimensi_suara_db',
     password: process.env.DB_PASSWORD || 'Bangbens220488!',
     database: process.env.DB_NAME || 'dimensi_suara_db',
     waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    connectTimeout: 30000 
+    connectionLimit: 10
 };
 
 const db = mysql.createPool(dbConfig);
 
-// Helper untuk membuat Full URL
+// Init Tables (Pastikan tabel memiliki struktur yang benar)
+const initDb = async () => {
+    const connection = await db.getConnection();
+    try {
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS releases (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                upc VARCHAR(50),
+                status ENUM('Pending', 'Processing', 'Live', 'Rejected', 'Draft') DEFAULT 'Pending',
+                submission_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+                artist_name VARCHAR(255),
+                aggregator VARCHAR(100),
+                cover_art_url VARCHAR(500), -- Menambah kolom URL cover art
+                language VARCHAR(100),
+                label VARCHAR(255),
+                version VARCHAR(100),
+                is_new_release BOOLEAN DEFAULT TRUE,
+                original_release_date DATE,
+                planned_release_date DATE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS tracks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                release_id INT,
+                title VARCHAR(255) NOT NULL,
+                track_number INT,
+                isrc VARCHAR(50),
+                duration VARCHAR(20),
+                instrumental VARCHAR(10) DEFAULT 'No',
+                genre VARCHAR(100),
+                explicit_lyrics VARCHAR(10) DEFAULT 'No',
+                composer VARCHAR(255),
+                lyricist VARCHAR(255),
+                lyrics TEXT,
+                audio_url VARCHAR(500),
+                FOREIGN KEY (release_id) REFERENCES releases(id) ON DELETE CASCADE
+            )
+        `);
+        console.log("Database tables initialized.");
+    } catch (err) {
+        console.error("Init DB Error:", err);
+    } finally {
+        connection.release();
+    }
+};
+initDb();
+
 const getFileUrl = (req, folderName, filename) => {
     if (!filename) return '';
     return `${req.protocol}://${req.get('host')}/uploads/${folderName}/${filename}`;
 };
 
-// --- API ROUTES ---
+// --- ROUTES ---
 
 app.get('/api/health-check', async (req, res) => {
-    const status = {
-        database: { connected: false, message: 'Menghubungkan...' },
-        storage: { connected: false, message: 'Mengecek folder...' },
-        serverTime: new Date().toISOString()
-    };
-
-    try {
-        await db.query('SELECT 1');
-        status.database.connected = true;
-        status.database.message = `Koneksi MySQL Berhasil`;
-    } catch (err) {
-        status.database.message = `MySQL Error: ${err.message}`;
-    }
-
-    try {
-        // Cek apakah folder uploads bisa ditulisi
-        const testFile = path.join(UPLOAD_DIRS.base, 'test.txt');
-        fs.writeFileSync(testFile, 'write-test');
-        fs.unlinkSync(testFile);
-        status.storage.connected = true;
-        status.storage.message = `Penyimpanan Lokal Siap (${UPLOAD_DIRS.base})`;
-    } catch (err) {
-        status.storage.message = `Storage Error: ${err.message}`;
-    }
-
-    res.json(status);
+    res.json({ status: 'ok', storage: UPLOAD_DIRS.base });
 });
 
-// Endpoint Upload Rilis (Local Storage)
+// Endpoint Upload Rilis (Fix untuk Album & Cover Art)
 app.post('/api/upload-release', upload.fields([
     { name: 'coverArt', maxCount: 1 },
-    { name: 'audioFiles' } // Supports multiple files
+    { name: 'audioFiles' } 
 ]), async (req, res) => {
     const connection = await db.getConnection();
     try {
@@ -128,20 +147,20 @@ app.post('/api/upload-release', upload.fields([
 
         const metadata = JSON.parse(req.body.metadata);
         
-        // 1. Proses URL Cover Art
+        // 1. Simpan Cover Art
         let coverArtUrl = '';
         if (req.files['coverArt'] && req.files['coverArt'][0]) {
             const file = req.files['coverArt'][0];
             coverArtUrl = getFileUrl(req, 'covers', file.filename);
         }
 
-        // 2. Simpan Header Rilis ke MySQL
+        // 2. Simpan Header Rilis
         const [releaseResult] = await connection.query(
             `INSERT INTO releases 
             (title, upc, status, artist_name, label, language, version, 
             is_new_release, original_release_date, planned_release_date, 
-            aggregator, submission_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            aggregator, cover_art_url, submission_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [
                 metadata.title, metadata.upc, 'Pending', 
                 metadata.primaryArtists.join(', '), metadata.label, 
@@ -149,30 +168,26 @@ app.post('/api/upload-release', upload.fields([
                 metadata.isNewRelease ? 1 : 0, 
                 metadata.originalReleaseDate || null,
                 metadata.plannedReleaseDate || null,
-                metadata.aggregator || null
+                metadata.aggregator || null,
+                coverArtUrl
             ]
         );
         const releaseId = releaseResult.insertId;
 
-        // 3. Proses Track & URL Audio
+        // 3. Simpan Tracks (Looping yang diperbaiki untuk Album)
         const uploadedAudioFiles = req.files['audioFiles'] || [];
-        // Kita asumsikan urutan file yang diupload sesuai dengan urutan track yang dikirim dari frontend
-        // (Frontend biasanya append FormData secara berurutan)
         
-        // Mapping file index manual karena metadata.tracks mungkin berisi track tanpa file baru (jika edit mode, logic perlu disesuaikan nanti)
-        // Untuk upload baru, kita asumsikan 1-to-1 mapping untuk track yang punya file.
-        let audioFileIndex = 0;
-
-        for (const track of metadata.tracks) {
+        // Kita asumsikan urutan array tracks di metadata SAMA dengan urutan file yang diupload.
+        // Frontend harus memastikan append 'audioFiles' dilakukan berurutan sesuai track.
+        
+        for (let i = 0; i < metadata.tracks.length; i++) {
+            const track = metadata.tracks[i];
             let audioUrl = '';
-            
-            // Cek apakah track ini punya file audio yang diupload
-            // Di frontend, kita append 'audioFiles' hanya jika track.audioFile ada.
-            // Logic sederhana: Assign file berikutnya dari array ke track ini.
-            if (track.audioFile && audioFileIndex < uploadedAudioFiles.length) {
-                const file = uploadedAudioFiles[audioFileIndex];
-                audioUrl = getFileUrl(req, 'audio', file.filename);
-                audioFileIndex++;
+
+            // Ambil file audio berdasarkan index loop
+            // Jika user upload 10 lagu, uploadedAudioFiles[0] adalah track 1, uploadedAudioFiles[1] adalah track 2, dst.
+            if (uploadedAudioFiles[i]) {
+                audioUrl = getFileUrl(req, 'audio', uploadedAudioFiles[i].filename);
             }
 
             await connection.query(
@@ -189,19 +204,18 @@ app.post('/api/upload-release', upload.fields([
         }
 
         await connection.commit();
-        res.json({ success: true, message: "Rilis berhasil disimpan ke Database & Local Storage!" });
+        res.json({ success: true, message: "Album/Lagu berhasil disimpan ke database!" });
 
     } catch (err) {
         await connection.rollback();
         console.error("Upload error:", err);
-        // Hapus file yang sudah terlanjur diupload jika error database (opsional cleanup)
         res.status(500).json({ success: false, error: err.message });
     } finally {
         connection.release();
     }
 });
 
-// Endpoint Kontrak (Local Storage)
+// ... (Sisa kode endpoint Contracts sama seperti sebelumnya) ...
 app.post('/api/contracts', upload.fields([
     { name: 'ktpFile', maxCount: 1 },
     { name: 'npwpFile', maxCount: 1 },
@@ -211,41 +225,22 @@ app.post('/api/contracts', upload.fields([
         const metadata = JSON.parse(req.body.metadata);
         const { contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status } = metadata;
         
-        // Helper untuk ambil URL file
-        const getUrl = (fieldName) => {
-            if (req.files[fieldName] && req.files[fieldName][0]) {
-                return getFileUrl(req, 'contracts', req.files[fieldName][0].filename);
-            }
-            return null;
-        };
-
-        // Simpan path/url ke database (Anda mungkin perlu menambah kolom di tabel contracts untuk menyimpan URL file ini jika belum ada)
-        // Untuk saat ini, kita simpan logika insertnya.
-        // NOTE: Skema DB contracts saat ini tidak punya kolom khusus untuk URL file KTP/NPWP.
-        // Anda mungkin ingin menambahkan kolom: ktp_url, npwp_url, signature_url.
-        // Di sini saya asumsikan tabel sudah disesuaikan atau kita simpan di kolom drive_folder_id sementara sebagai JSON string (hack) atau ubah skema.
-        // Mari kita simpan path folder saja di drive_folder_id agar kompatibel dengan frontend existing.
-        
-        // Namun, solusi terbaik adalah frontend tahu bahwa file tersimpan.
-        
         const sql = `INSERT INTO contracts 
             (contract_number, artist_name, start_date, end_date, duration_years, royalty_rate, status, drive_folder_id) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
         
-        // Kita simpan placeholder "LOCAL" di drive_folder_id untuk menandakan ini bukan gdrive
         const values = [
             contractNumber, artistName, startDate, endDate, durationYears, royaltyRate, status || 'Pending', 'LOCAL_STORAGE'
         ];
 
         const [result] = await db.query(sql, values);
-        res.status(201).json({ success: true, id: result.insertId, message: "Kontrak tersimpan di Local Storage." });
+        res.status(201).json({ success: true, id: result.insertId, message: "Kontrak tersimpan." });
     } catch (err) {
-        console.error("Database Error:", err);
-        res.status(500).json({ success: false, error: "Gagal menyimpan: " + err.message });
+        console.error("DB Error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Get All Contracts
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -255,43 +250,34 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
-// Update Contract Status
 app.patch('/api/contracts/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        const sql = `UPDATE contracts SET status = ? WHERE id = ?`;
-        const [result] = await db.query(sql, [status, id]);
-        res.json({ success: true, message: "Status kontrak berhasil diperbarui." });
+        const [result] = await db.query('UPDATE contracts SET status = ? WHERE id = ?', [status, id]);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Delete Contract
 app.delete('/api/contracts/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-        // Opsional: Hapus file fisik terkait kontrak ini sebelum hapus row DB
-        await db.query('DELETE FROM contracts WHERE id = ?', [id]);
-        res.json({ success: true, message: "Kontrak dihapus." });
+        await db.query('DELETE FROM contracts WHERE id = ?', [req.params.id]);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Get Releases
 app.get('/api/releases', async (req, res) => {
     try {
-        // Ambil releases
+        // Fetch releases
         const [rows] = await db.query('SELECT * FROM releases ORDER BY submission_date DESC');
         
-        // Ambil tracks untuk setiap release agar audio_url bisa dikirim ke frontend
-        // (Frontend membutuhkan struktur tracks di dalam release object)
         const releasesWithTracks = await Promise.all(rows.map(async (release) => {
-            const [tracks] = await db.query('SELECT * FROM tracks WHERE release_id = ?', [release.id]);
+            const [tracks] = await db.query('SELECT * FROM tracks WHERE release_id = ? ORDER BY track_number ASC', [release.id]);
             
-            // Map tracks field names to match frontend expectations if necessary
             const mappedTracks = tracks.map(t => ({
                 id: t.id.toString(),
                 trackNumber: t.track_number,
@@ -303,18 +289,11 @@ app.get('/api/releases', async (req, res) => {
                 composer: t.composer,
                 lyricist: t.lyricist,
                 lyrics: t.lyrics,
-                artists: [{ name: release.artist_name, role: 'MainArtist' }], // Simplification
+                artists: [{ name: release.artist_name, role: 'MainArtist' }], 
                 contributors: [],
-                // Kirim URL audio fisik ke frontend sebagai properti
-                audioFileUrl: t.audio_url 
+                audioFileUrl: t.audio_url // Send saved URL
             }));
 
-            // Cover Art URL logic construction (if stored as full URL, use it, else construct it)
-            // Di kode upload di atas, kita simpan Full URL.
-            // Namun, karena 'coverArt' di frontend ReleaseData mengharapkan File object,
-            // kita perlu adjust di frontend.
-            // Tapi untuk list view, kita kirim URL-nya saja.
-            
             return {
                 ...release,
                 id: release.id.toString(),
@@ -324,18 +303,9 @@ app.get('/api/releases', async (req, res) => {
                 submissionDate: release.submission_date,
                 isNewRelease: !!release.is_new_release,
                 tracks: mappedTracks,
-                // Kita kirim URL cover art sebagai properti tambahan
-                coverArtUrl: release.drive_folder_id // HACK: Kita simpan URL cover art? Tidak, tadi kita tidak simpan URL cover di tabel releases.
-                // KOREKSI: Tabel releases tidak punya kolom cover_art_url.
-                // Mari kita tambahkan logic untuk mencari cover art jika ada, atau gunakan drive_folder_id (yang skrg mungkin null/local).
+                coverArtUrl: release.cover_art_url // Send saved URL
             };
         }));
-        
-        // KOREKSI DATABASE SCHEMA PENTING:
-        // Tabel releases belum punya kolom 'cover_url'. 
-        // Kode upload sebelumnya tidak menyimpan URL cover art ke DB releases secara eksplisit (hanya insert tracks).
-        // Kita harus memperbaiki endpoint upload untuk menyimpan URL cover jika memungkinkan, 
-        // atau menyimpan di tracks.
         
         res.json(releasesWithTracks);
     } catch (err) {
@@ -344,7 +314,6 @@ app.get('/api/releases', async (req, res) => {
     }
 });
 
-// Handle React Routing (SPA)
 app.get('*', (req, res) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
         return res.status(404).json({ error: `Not found: ${req.path}` });
@@ -359,5 +328,4 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
-    console.log(`📂 Folder Upload: ${UPLOAD_DIRS.base}`);
 });

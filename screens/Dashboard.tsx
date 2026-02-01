@@ -21,7 +21,6 @@ interface Props {
 
 export const Dashboard: React.FC<Props> = ({ releases, onViewRelease, onNavigateToAll }) => {
   
-  // Calculate Stats
   const stats = {
     total: releases.length,
     pending: releases.filter(r => r.status === 'Pending').length,
@@ -30,7 +29,6 @@ export const Dashboard: React.FC<Props> = ({ releases, onViewRelease, onNavigate
     rejected: releases.filter(r => r.status === 'Rejected').length,
   };
 
-  // Filter Recent Activity: Only Pending & Processing
   const recentActivity = releases
     .filter(r => r.status === 'Pending' || r.status === 'Processing')
     .slice(0, 5);
@@ -55,53 +53,20 @@ export const Dashboard: React.FC<Props> = ({ releases, onViewRelease, onNavigate
             <p className="text-slate-500 mt-1">Welcome back, here is your catalog overview.</p>
        </div>
 
-       {/* STATS CARDS */}
        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-            <StatCard 
-                title="Pending Review" 
-                count={stats.pending} 
-                icon={<Clock size={24} />} 
-                colorClass="text-yellow-600" 
-                bgClass="bg-yellow-50"
-                subtext="Waiting for approval"
-            />
-            <StatCard 
-                title="Processing" 
-                count={stats.processing} 
-                icon={<Loader2 size={24} className={stats.processing > 0 ? "animate-spin-slow" : ""} />} 
-                colorClass="text-blue-600" 
-                bgClass="bg-blue-50"
-                subtext="Sent to stores"
-            />
-            <StatCard 
-                title="Live Releases" 
-                count={stats.live} 
-                icon={<CheckCircle size={24} />} 
-                colorClass="text-green-600" 
-                bgClass="bg-green-50"
-                subtext="Active on DSPs"
-            />
-            <StatCard 
-                title="Rejected" 
-                count={stats.rejected} 
-                icon={<AlertTriangle size={24} />} 
-                colorClass="text-red-600" 
-                bgClass="bg-red-50"
-                subtext="Requires attention"
-            />
+            <StatCard title="Pending Review" count={stats.pending} icon={<Clock size={24} />} colorClass="text-yellow-600" bgClass="bg-yellow-50" subtext="Waiting for approval" />
+            <StatCard title="Processing" count={stats.processing} icon={<Loader2 size={24} className={stats.processing > 0 ? "animate-spin-slow" : ""} />} colorClass="text-blue-600" bgClass="bg-blue-50" subtext="Sent to stores" />
+            <StatCard title="Live Releases" count={stats.live} icon={<CheckCircle size={24} />} colorClass="text-green-600" bgClass="bg-green-50" subtext="Active on DSPs" />
+            <StatCard title="Rejected" count={stats.rejected} icon={<AlertTriangle size={24} />} colorClass="text-red-600" bgClass="bg-red-50" subtext="Requires attention" />
        </div>
 
-       {/* RECENT ACTIVITY TABLE */}
        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
                 <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
                     <LayoutDashboard size={20} className="text-slate-400" />
                     Recent Activity (Pending & Processing)
                 </h3>
-                <button 
-                    onClick={onNavigateToAll}
-                    className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                >
+                <button onClick={onNavigateToAll} className="text-sm font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1">
                     View All <ArrowRight size={16} />
                 </button>
             </div>
@@ -121,20 +86,22 @@ export const Dashboard: React.FC<Props> = ({ releases, onViewRelease, onNavigate
                     <tbody className="divide-y divide-gray-100">
                         {recentActivity.map((release) => {
                              let statusClass = "bg-gray-100 text-gray-600 border-gray-200";
-                             // Only Pending and Processing logic needed for this table based on filter
                              if (release.status === 'Processing') statusClass = "bg-blue-100 text-blue-700 border-blue-200";
                              if (release.status === 'Pending') statusClass = "bg-yellow-100 text-yellow-700 border-yellow-200";
 
+                             let coverSrc = null;
+                             if (release.coverArt instanceof File) {
+                                 coverSrc = URL.createObjectURL(release.coverArt);
+                             } else if ((release as any).coverArtUrl) {
+                                 coverSrc = (release as any).coverArtUrl;
+                             }
+
                              return (
-                                <tr 
-                                    key={release.id} 
-                                    onClick={() => onViewRelease(release)}
-                                    className="hover:bg-blue-50/30 transition-colors cursor-pointer group"
-                                >
+                                <tr key={release.id} onClick={() => onViewRelease(release)} className="hover:bg-blue-50/30 transition-colors cursor-pointer group">
                                     <td className="px-6 py-3">
                                         <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
-                                            {release.coverArt ? (
-                                                <img src={URL.createObjectURL(release.coverArt)} className="w-full h-full object-cover" />
+                                            {coverSrc ? (
+                                                <img src={coverSrc} className="w-full h-full object-cover" />
                                             ) : (
                                                 <div className="flex items-center justify-center h-full text-gray-400"><Disc size={16} /></div>
                                             )}
