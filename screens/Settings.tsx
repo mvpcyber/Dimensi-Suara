@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, ExternalLink, HelpCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, RefreshCw, HardDrive } from 'lucide-react';
 import { checkSystemHealth } from '../services/googleService';
 
 interface Props {
@@ -25,8 +25,7 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
         setErrorMessage(`Error: ${err.message}. Pastikan Backend (Node.js) sedang berjalan.`);
         setHealthStatus({
             database: { connected: false, message: 'Server Tidak Merespon' },
-            googleDrive: { connected: false, message: 'Offline' },
-            fileSystem: { serviceAccountExists: false }
+            storage: { connected: false, message: 'Offline' },
         });
     } finally {
         setIsChecking(false);
@@ -49,11 +48,6 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
     setAggregators(newList);
   };
 
-  const copyToClipboard = (text: string) => {
-      navigator.clipboard.writeText(text);
-      alert("Email disalin!");
-  };
-
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto min-h-screen">
        <div className="mb-8 border-b border-gray-200 pb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -62,7 +56,7 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                     <SettingsIcon size={32} className="text-slate-400" />
                     Settings
                 </h1>
-                <p className="text-slate-500 mt-1">Konfigurasi database dan status server.</p>
+                <p className="text-slate-500 mt-1">Konfigurasi database dan status server (Local Storage).</p>
             </div>
             <button 
                 onClick={runHealthCheck}
@@ -76,7 +70,7 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
 
        {errorMessage && (
            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 shadow-sm">
-               <AlertTriangle size={20} className="shrink-0" />
+               <XCircle size={20} className="shrink-0" />
                <div className="text-xs font-bold leading-relaxed">{errorMessage}</div>
            </div>
        )}
@@ -90,78 +84,32 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                     </div>
 
                     <div className="space-y-6">
+                        {/* Database Status */}
                         <div className="flex items-start gap-4 p-4 rounded-xl border bg-slate-50/50">
-                            {healthStatus?.database.connected ? (
+                            {healthStatus?.database?.connected ? (
                                 <CheckCircle className="text-green-500 mt-1" size={20} />
                             ) : (
                                 <XCircle className="text-red-500 mt-1" size={20} />
                             )}
                             <div className="flex-1">
                                 <h4 className="font-bold text-slate-700 text-sm">MySQL Database</h4>
-                                <p className="text-xs text-slate-500 mt-1">{healthStatus?.database.message || 'Mengecek status...'}</p>
+                                <p className="text-xs text-slate-500 mt-1">{healthStatus?.database?.message || 'Mengecek status...'}</p>
                             </div>
                         </div>
 
+                        {/* Local Storage Status */}
                         <div className="flex items-start gap-4 p-4 rounded-xl border bg-slate-50/50">
-                            {healthStatus?.googleDrive.connected ? (
+                            {healthStatus?.storage?.connected ? (
                                 <CheckCircle className="text-green-500 mt-1" size={20} />
                             ) : (
                                 <XCircle className="text-red-500 mt-1" size={20} />
                             )}
                             <div className="flex-1">
-                                <h4 className="font-bold text-slate-700 text-sm">Google Drive Access</h4>
-                                <p className={`text-xs mt-1 ${healthStatus?.googleDrive.connected ? 'text-slate-500' : 'text-red-500 font-bold'}`}>
-                                    {healthStatus?.googleDrive.message || 'Mengecek status...'}
-                                </p>
-                                
-                                {healthStatus?.googleDrive.suggestion && (
-                                    <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl">
-                                        <div className="flex items-center gap-2 text-red-700 font-bold text-xs mb-2">
-                                            <HelpCircle size={14} /> Solusi Error:
-                                        </div>
-                                        <p className="text-[11px] text-red-600 leading-relaxed mb-3">
-                                            {healthStatus.googleDrive.suggestion}
-                                        </p>
-                                        <a 
-                                            href="https://console.cloud.google.com/apis/library/drive.googleapis.com" 
-                                            target="_blank" 
-                                            rel="noreferrer"
-                                            className="inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:underline"
-                                        >
-                                            Aktifkan Google Drive API <ExternalLink size={10} />
-                                        </a>
-                                    </div>
-                                )}
-
-                                {healthStatus?.googleDrive.email && (
-                                    <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                                        <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">Email Service Account:</p>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <code className="text-[11px] text-slate-700 font-mono break-all">{healthStatus.googleDrive.email}</code>
-                                            <button 
-                                                onClick={() => copyToClipboard(healthStatus.googleDrive.email)}
-                                                className="p-1.5 text-blue-500 hover:bg-blue-100 rounded transition-colors flex-shrink-0"
-                                            >
-                                                <Copy size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="flex items-start gap-4 p-4 rounded-xl border bg-slate-50/50">
-                            {healthStatus?.fileSystem.serviceAccountExists ? (
-                                <CheckCircle className="text-green-500 mt-1" size={20} />
-                            ) : (
-                                <XCircle className="text-red-500 mt-1" size={20} />
-                            )}
-                            <div className="flex-1">
-                                <h4 className="font-bold text-slate-700 text-sm">Credential File (`service-account.json`)</h4>
-                                <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                                    {healthStatus?.fileSystem.serviceAccountExists 
-                                        ? `File aktif di: ${healthStatus.fileSystem.pathChecked}` 
-                                        : `File tidak ditemukan di path utama Plesk.`}
+                                <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                                    <HardDrive size={14} /> Local File Storage
+                                </h4>
+                                <p className={`text-xs mt-1 ${healthStatus?.storage?.connected ? 'text-slate-500' : 'text-red-500 font-bold'}`}>
+                                    {healthStatus?.storage?.message || 'Mengecek folder uploads...'}
                                 </p>
                             </div>
                         </div>
