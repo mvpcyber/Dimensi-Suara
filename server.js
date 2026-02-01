@@ -15,14 +15,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Multer setup
+// Multer setup for handling file uploads in memory
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 app.use(cors());
 app.use(express.json());
 
-// --- DATABASE CONNECTION ---
+// --- DATABASE CONNECTION (MySQL) ---
 const db = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
     user: process.env.DB_USER || 'root',
@@ -32,16 +32,14 @@ const db = mysql.createPool({
     connectionLimit: 10
 });
 
-// --- GOOGLE AUTH SETUP ---
+// --- GOOGLE DRIVE AUTH SETUP ---
 const auth = new google.auth.GoogleAuth({
     credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}'),
     scopes: [
-        'https://www.googleapis.com/auth/drive.file',
-        'https://www.googleapis.com/auth/spreadsheets'
+        'https://www.googleapis.com/auth/drive.file'
     ],
 });
 const drive = google.drive({ version: 'v3', auth });
-const sheets = google.sheets({ version: 'v4', auth });
 
 async function uploadToDrive(fileBuffer, fileName, mimeType, folderId) {
     const response = await drive.files.create({
@@ -57,13 +55,17 @@ async function uploadToDrive(fileBuffer, fileName, mimeType, folderId) {
     return response.data.id;
 }
 
-// API Routes (Upload, Contracts, etc.)
+// --- API ROUTES ---
+
+// Upload Release (Metadata to MySQL, Files to Drive)
 app.post('/api/upload-release', upload.fields([
     { name: 'coverArt', maxCount: 1 },
     { name: 'audioFiles', maxCount: 20 }
 ]), async (req, res) => {
     try {
         const metadata = JSON.parse(req.body.metadata);
+        
+        // 1. Create Folder in Google Drive
         const folderResponse = await drive.files.create({
             requestBody: {
                 name: `${metadata.title} - ${metadata.upc || 'NOUPC'}`,
@@ -72,28 +74,40 @@ app.post('/api/upload-release', upload.fields([
             }
         });
         const folderId = folderResponse.data.id;
+
+        // 2. Upload Cover Art to Drive
         let coverDriveId = '';
         if (req.files.coverArt) {
-            coverDriveId = await uploadToDrive(req.files.coverArt[0].buffer, `Cover-${metadata.title}.jpg`, 'image/jpeg', folderId);
+            coverDriveId = await uploadToDrive(
+                req.files.coverArt[0].buffer, 
+                `Cover-${metadata.title}.jpg`, 
+                'image/jpeg', 
+                folderId
+            );
         }
+
+        // 3. Save Metadata to MySQL (Only)
         await db.query(
             'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '', folderId]
+            [
+                metadata.title, 
+                metadata.upc, 
+                'Pending', 
+                new Date(), 
+                metadata.primaryArtists[0], 
+                '', 
+                folderId
+            ]
         );
-        await sheets.spreadsheets.values.append({
-            spreadsheetId: process.env.GOOGLE_SHEET_ID,
-            range: 'Sheet1!A:G',
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-                values: [[new Date().toISOString(), metadata.upc, metadata.title, metadata.primaryArtists.join(', '), 'Pending', folderId]]
-            }
-        });
-        res.json({ success: true, message: 'Data tersimpan!' });
+
+        res.json({ success: true, message: 'Data metadata tersimpan di MySQL & File tersimpan di Google Drive!' });
     } catch (err) {
+        console.error("Upload Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
 
+// Contracts API
 app.get('/api/contracts', async (req, res) => {
     try {
         const [rows] = await db.query('SELECT * FROM contracts ORDER BY created_at DESC');
@@ -117,12 +131,11 @@ app.post('/api/contracts', async (req, res) => {
 });
 
 // --- SERVE FRONTEND (DIST FOLDER) ---
-// Gunakan path.resolve agar lebih pasti lokasinya
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
+// Handle React Routing (Redirect all non-API requests to index.html)
 app.get('*', (req, res) => {
-    // Jika request bukan API, arahkan ke index.html di folder dist
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(distPath, 'index.html'));
     }
@@ -131,4 +144,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di port ${PORT}`);
     console.log(`📂 Menyajikan file statis dari: ${distPath}`);
+    console.log(`🔗 Metadata dikirim ke MySQL, File dikirim ke Drive.`);
 });
