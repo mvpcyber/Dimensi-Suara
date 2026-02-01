@@ -1,10 +1,9 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Contract } from '../types';
 import { uploadContractToGoogle, updateContractStatus } from '../services/googleService';
-import { FileSignature, Plus, Search, Trash2, Calendar, User, FileText, CheckCircle, List, ArrowLeft, ArrowRight, Upload, Clock, CreditCard, PenTool, Hash, Loader2, Database, AlertCircle, WifiOff, FileImage, RotateCw, ZoomIn, X, Check, Eye, Download, ChevronRight, Maximize2, Printer } from 'lucide-react';
+import { FileSignature, Plus, Search, Trash2, CheckCircle, Upload, Loader2, X, Check, Eye } from 'lucide-react';
 import Cropper from 'react-easy-crop';
-import { Point, Area } from 'react-easy-crop/types';
 
 interface Props {
     activeTab: string;
@@ -37,7 +36,7 @@ function rotateSize(width: number, height: number, rotation: number) {
 
 async function getCroppedImg(
   imageSrc: string,
-  pixelCrop: Area,
+  pixelCrop: any,
   rotation = 0,
   flip = { horizontal: false, vertical: false },
   fileName: string
@@ -73,7 +72,7 @@ async function getCroppedImg(
   });
 }
 
-export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts }) => {
+export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContracts }) => {
     const [formData, setFormData] = useState<Contract>({
         id: '',
         contractNumber: '',
@@ -92,24 +91,20 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
     const [cropModalOpen, setCropModalOpen] = useState(false);
     const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
     const [cropTargetField, setCropTargetField] = useState<'ktpFile' | 'npwpFile' | 'signatureFile' | null>(null);
-    const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
+    const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [rotation, setRotation] = useState(0);
-    const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
     const [isProcessingCrop, setIsProcessingCrop] = useState(false);
 
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [editStatus, setEditStatus] = useState<Contract['status']>('Pending');
-    const [signedPdf, setSignedPdf] = useState<File | null>(null);
-    const [previewImage, setPreviewImage] = useState<string | null>(null);
-    const [isGeneratingContract, setIsGeneratingContract] = useState(false);
 
     const [searchTerm, setSearchTerm] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [showSuccess, setShowSuccess] = useState(false);
-    const [isOffline, setIsOffline] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 8;
@@ -130,12 +125,11 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
                 royaltyRate: item.royalty_rate,
                 status: item.status,
                 createdDate: item.created_at ? item.created_at.split('T')[0] : '',
-                ktpFile: null, npwpFile: null, signatureFile: null, signedContractFile: null
+                ktpFile: null, npwpFile: null, signatureFile: null
             }));
             setContracts(mappedData);
-            setIsOffline(false);
         } catch (err) {
-            setIsOffline(true);
+            console.error("Error fetching contracts:", err);
         } finally {
             setIsLoading(false);
         }
@@ -190,8 +184,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
         }
     };
 
-    // --- Fix: Added missing onCropComplete callback for the Cropper component ---
-    const onCropComplete = (croppedArea: Area, croppedAreaPixels: Area) => {
+    const onCropComplete = (_croppedArea: any, croppedAreaPixels: any) => {
         setCroppedAreaPixels(croppedAreaPixels);
     };
 
@@ -217,7 +210,6 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
     const handleViewDetail = (contract: Contract) => {
         setSelectedContract(contract);
         setEditStatus(contract.status);
-        setSignedPdf(contract.signedContractFile || null);
         setDetailModalOpen(true);
     };
 
@@ -225,10 +217,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
         if (!selectedContract) return;
         setIsSubmitting(true);
         try {
-            // Update ke backend MySQL
             await updateContractStatus(selectedContract.id, editStatus);
-            
-            // Update state lokal
             setContracts(prev => prev.map(c => c.id === selectedContract.id ? { ...c, status: editStatus } : c));
             setDetailModalOpen(false);
             alert("Status berhasil diperbarui!");
@@ -257,6 +246,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
         try {
             await uploadContractToGoogle(newContract);
             setShowSuccess(true);
+            fetchContracts(); // Refresh list
         } catch (err: any) {
             alert("Gagal menyimpan: " + err.message);
         } finally {
@@ -274,24 +264,25 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
         }
     };
 
-    const filteredContracts = contracts.filter(c => 
-        c.artistName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        c.contractNumber.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    // Filter dengan proteksi null-check agar tidak blank/crash
+    const filteredContracts = Array.isArray(contracts) ? contracts.filter(c => {
+        const name = c.artistName || '';
+        const num = c.contractNumber || '';
+        return name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+               num.toLowerCase().includes(searchTerm.toLowerCase());
+    }) : [];
 
     const totalPages = Math.ceil(filteredContracts.length / ITEMS_PER_PAGE);
     const displayedContracts = filteredContracts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
     return (
         <div className="p-4 md:p-8 w-full max-w-[1400px] mx-auto min-h-screen">
-            <div className="mb-8 flex justify-between items-end">
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
-                        <FileSignature size={32} className="text-blue-600" />
-                        Manajemen Kontrak
-                    </h1>
-                    <p className="text-slate-500 mt-1">Buat dan kelola kontrak kerjasama partner.</p>
-                </div>
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold text-slate-800 tracking-tight flex items-center gap-3">
+                    <FileSignature size={32} className="text-blue-600" />
+                    Manajemen Kontrak
+                </h1>
+                <p className="text-slate-500 mt-1">Buat dan kelola kontrak kerjasama partner.</p>
             </div>
 
             {activeTab === 'CONTRACT_NEW' && (
@@ -361,7 +352,7 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
             )}
 
             {activeTab === 'CONTRACT_ALL' && (
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[600px] animate-fade-in">
+                <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden flex flex-col min-h-[500px] animate-fade-in">
                     <div className="p-6 border-b border-gray-200 flex justify-between items-center">
                          <div className="relative w-full md:w-96">
                              <input placeholder="Cari partner..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl" />
@@ -395,6 +386,11 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
                                         </td>
                                     </tr>
                                 ))}
+                                {displayedContracts.length === 0 && !isLoading && (
+                                    <tr>
+                                        <td colSpan={4} className="p-12 text-center text-slate-400 italic">Data tidak ditemukan.</td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>
@@ -425,8 +421,8 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
                         </div>
                         <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
                              <button onClick={() => setDetailModalOpen(false)} className="px-6 py-2.5 font-bold">Batal</button>
-                             <button onClick={handleSaveDetail} disabled={isSubmitting} className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg">
-                                 {isSubmitting ? <Loader2 className="animate-spin" /> : <Check />}
+                             <button onClick={handleSaveDetail} disabled={isSubmitting} className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg flex items-center gap-2">
+                                 {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
                                  Simpan Perubahan
                              </button>
                         </div>
@@ -439,15 +435,20 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts, setContracts 
                     <div className="bg-white rounded-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden">
                         <div className="relative flex-1 bg-slate-900">
                             <Cropper
-                                image={cropImageSrc} crop={crop} zoom={zoom} rotation={rotation}
+                                image={cropImageSrc} 
+                                crop={crop} 
+                                zoom={zoom} 
+                                rotation={rotation}
                                 aspect={cropTargetField === 'signatureFile' ? 3/2 : 4/3}
-                                onCropChange={setCrop} onCropComplete={onCropComplete}
-                                onZoomChange={setZoom} onRotationChange={setRotation}
+                                onCropChange={setCrop} 
+                                onCropComplete={onCropComplete}
+                                onZoomChange={setZoom} 
+                                onRotationChange={setRotation}
                             />
                         </div>
                         <div className="p-4 bg-white border-t flex justify-end gap-3">
-                            <button onClick={() => setCropModalOpen(false)} className="px-6 py-2">Batal</button>
-                            <button onClick={handleCropSave} className="px-6 py-2 bg-blue-600 text-white rounded-xl">Simpan</button>
+                            <button onClick={() => setCropModalOpen(false)} className="px-6 py-2 font-bold text-slate-500">Batal</button>
+                            <button onClick={handleCropSave} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold">Simpan Potongan</button>
                         </div>
                     </div>
                 </div>

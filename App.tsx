@@ -44,8 +44,21 @@ const App: React.FC = () => {
         
         const contractRes = await fetch('/api/contracts');
         if (contractRes.ok) {
-            const contracts = await contractRes.json();
-            setAllContracts(contracts);
+            const data = await contractRes.json();
+            // PENTING: Map data agar tidak crash di komponen Contracts
+            const mappedContracts: Contract[] = data.map((item: any) => ({
+                id: item.id.toString(),
+                contractNumber: item.contract_number,
+                artistName: item.artist_name,
+                startDate: item.start_date ? item.start_date.split('T')[0] : '',
+                endDate: item.end_date ? item.end_date.split('T')[0] : '',
+                durationYears: item.duration_years,
+                royaltyRate: item.royalty_rate,
+                status: item.status,
+                createdDate: item.created_at ? item.created_at.split('T')[0] : '',
+                ktpFile: null, npwpFile: null, signatureFile: null
+            }));
+            setAllContracts(mappedContracts);
         }
     } catch (err) {
         console.error("Gagal memuat data dari database:", err);
