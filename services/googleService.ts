@@ -1,21 +1,22 @@
 
 import { ReleaseData, Contract } from '../types';
 
-// Helper untuk mengambil token dari localStorage
-const getAuthHeaders = () => {
-    const token = localStorage.getItem('google_access_token');
-    return token ? { 'Authorization': `Bearer ${token}` } : {};
-};
-
 export const checkSystemHealth = async () => {
   try {
     const response = await fetch('/api/health-check', {
-        headers: { 
-            'Accept': 'application/json',
-            ...getAuthHeaders()
-        },
+        headers: { 'Accept': 'application/json' },
         cache: 'no-store'
     });
+    
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Server mengirim balasan HTML, bukan JSON. Ini biasanya karena kesalahan routing atau .htaccess di Plesk.");
+    }
+
+    if (!response.ok) {
+        throw new Error(`Server merespon dengan status ${response.status}`);
+    }
+    
     return await response.json();
   } catch (err: any) {
     console.error("Health Check Failed:", err);
@@ -24,9 +25,7 @@ export const checkSystemHealth = async () => {
 };
 
 export const getAllReleases = async (): Promise<ReleaseData[]> => {
-    const response = await fetch('/api/releases', {
-        headers: getAuthHeaders()
-    });
+    const response = await fetch('/api/releases');
     if (!response.ok) throw new Error('Gagal mengambil data rilis.');
     return await response.json();
 };
@@ -42,7 +41,6 @@ export const uploadReleaseToGoogle = async (data: ReleaseData): Promise<{ succes
 
   const response = await fetch('/api/upload-release', {
     method: 'POST',
-    headers: getAuthHeaders(),
     body: formData
   });
 
@@ -56,10 +54,12 @@ export const uploadReleaseToGoogle = async (data: ReleaseData): Promise<{ succes
 export const uploadContractToGoogle = async (data: Contract): Promise<{ success: boolean; message: string }> => {
     const formData = new FormData();
     
+    // Append files
     if (data.ktpFile) formData.append('ktpFile', data.ktpFile);
     if (data.npwpFile) formData.append('npwpFile', data.npwpFile);
     if (data.signatureFile) formData.append('signatureFile', data.signatureFile);
     
+    // Append metadata as stringified JSON
     formData.append('metadata', JSON.stringify({
         contractNumber: data.contractNumber,
         artistName: data.artistName,
@@ -72,13 +72,12 @@ export const uploadContractToGoogle = async (data: Contract): Promise<{ success:
 
     const response = await fetch('/api/contracts', {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: formData
+        body: formData // Use FormData for multi-part upload
     });
     
     if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'Gagal menyimpan kontrak.');
+        throw new Error(err.error || 'Gagal menyimpan kontrak ke database.');
     }
     
     return await response.json();
@@ -87,14 +86,11 @@ export const uploadContractToGoogle = async (data: Contract): Promise<{ success:
 export const updateContractStatus = async (id: string, status: string): Promise<void> => {
     const response = await fetch(`/api/contracts/${id}`, {
         method: 'PATCH',
-        headers: { 
-            'Content-Type': 'application/json',
-            ...getAuthHeaders()
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
     });
     if (!response.ok) {
         const err = await response.json();
-        throw new Error(err.error || 'Gagal memperbarui status.');
+        throw new Error(err.error || 'Gagal memperbarui status kontrak.');
     }
 };
