@@ -37,28 +37,30 @@ const db = mysql.createPool({
 async function getGoogleAuth() {
     let credentials;
     
-    // Cek apakah ada di Env Var
+    // 1. Check Env Var
     if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
         try {
             credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-            console.log("✅ Menggunakan Google Credentials dari Environment Variable.");
         } catch (e) {
             console.error("❌ Gagal parse GOOGLE_SERVICE_ACCOUNT_JSON dari Env Var.");
         }
     } 
     
-    // Jika tidak ada di Env Var, coba baca dari file service-account.json
+    // 2. Check service-account.json file
     if (!credentials) {
         const filePath = path.join(__dirname, 'service-account.json');
         if (fs.existsSync(filePath)) {
             const fileContent = fs.readFileSync(filePath, 'utf8');
-            credentials = JSON.parse(fileContent);
-            console.log("✅ Menggunakan Google Credentials dari file service-account.json.");
+            try {
+                credentials = JSON.parse(fileContent);
+            } catch (e) {
+                console.error("❌ File service-account.json tidak valid (Format JSON salah).");
+            }
         }
     }
 
     if (!credentials) {
-        throw new Error("❌ Google Credentials tidak ditemukan! Harap masukkan di Env Var atau upload file service-account.json.");
+        return null;
     }
 
     return new google.auth.GoogleAuth({
@@ -67,39 +69,80 @@ async function getGoogleAuth() {
     });
 }
 
-// Inisialisasi Drive API
+// Global Drive instance
 let drive;
-getGoogleAuth().then(auth => {
-    drive = google.drive({ version: 'v3', auth });
-}).catch(err => {
-    console.error(err.message);
-});
-
-async function uploadToDrive(fileBuffer, fileName, mimeType, folderId) {
-    if (!drive) throw new Error("Google Drive API belum siap.");
-    const response = await drive.files.create({
-        requestBody: {
-            name: fileName,
-            parents: [folderId || process.env.GOOGLE_DRIVE_FOLDER_ID],
-        },
-        media: {
-            mimeType: mimeType,
-            body: Readable.from(fileBuffer),
-        },
-    });
-    return response.data.id;
-}
+const initDrive = async () => {
+    try {
+        const auth = await getGoogleAuth();
+        if (auth) {
+            drive = google.drive({ version: 'v3', auth });
+            console.log("✅ Google Drive API siap digunakan.");
+        }
+    } catch (err) {
+        console.error("❌ Inisialisasi Drive Gagal:", err.message);
+    }
+};
+initDrive();
 
 // --- API ROUTES ---
+
+// Health Check API to debug connection issues
+app.get('/api/health-check', async (req, res) => {
+    const status = {
+        database: { connected: false, message: '' },
+        googleDrive: { connected: false, message: '', email: '' },
+        fileSystem: { serviceAccountExists: false }
+    };
+
+    // 1. Check MySQL
+    try {
+        await db.query('SELECT 1');
+        status.database.connected = true;
+        status.database.message = 'Koneksi MySQL Berhasil.';
+    } catch (err) {
+        status.database.message = `Gagal koneksi MySQL: ${err.message}`;
+    }
+
+    // 2. Check service-account.json
+    const filePath = path.join(__dirname, 'service-account.json');
+    status.fileSystem.serviceAccountExists = fs.existsSync(filePath);
+
+    // 3. Check Google Drive Access
+    if (!drive) {
+        status.googleDrive.message = 'Google Drive API belum terinisialisasi. Pastikan file service-account.json ada di folder root.';
+    } else {
+        try {
+            const auth = await getGoogleAuth();
+            const creds = await auth.getCredentials();
+            status.googleDrive.email = creds.client_email;
+
+            const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+            if (!folderId) {
+                status.googleDrive.message = 'GOOGLE_DRIVE_FOLDER_ID tidak ditemukan di environment variables.';
+            } else {
+                // Try to get folder metadata to verify access
+                const folder = await drive.files.get({ fileId: folderId, fields: 'id, name' });
+                status.googleDrive.connected = true;
+                status.googleDrive.message = `Berhasil mengakses folder: "${folder.data.name}"`;
+            }
+        } catch (err) {
+            status.googleDrive.message = `Gagal mengakses Google Drive: ${err.message}. Pastikan folder Drive sudah dibagikan (Shared) ke email Service Account.`;
+        }
+    }
+
+    res.json(status);
+});
 
 app.post('/api/upload-release', upload.fields([
     { name: 'coverArt', maxCount: 1 },
     { name: 'audioFiles', maxCount: 20 }
 ]), async (req, res) => {
     try {
+        if (!drive) throw new Error("Google Drive API belum siap. Periksa kredensial.");
+        
         const metadata = JSON.parse(req.body.metadata);
         
-        // 1. Create Folder in Google Drive
+        // 1. Create Folder
         const folderResponse = await drive.files.create({
             requestBody: {
                 name: `${metadata.title} - ${metadata.upc || 'NOUPC'}`,
@@ -109,24 +152,13 @@ app.post('/api/upload-release', upload.fields([
         });
         const folderId = folderResponse.data.id;
 
-        // 2. Upload Cover Art
-        let coverDriveId = '';
-        if (req.files.coverArt) {
-            coverDriveId = await uploadToDrive(
-                req.files.coverArt[0].buffer, 
-                `Cover-${metadata.title}.jpg`, 
-                'image/jpeg', 
-                folderId
-            );
-        }
-
-        // 3. Save to MySQL
+        // 2. Metadata to MySQL
         await db.query(
             'INSERT INTO releases (title, upc, status, submission_date, artist_name, aggregator, drive_folder_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
             [metadata.title, metadata.upc, 'Pending', new Date(), metadata.primaryArtists[0], '', folderId]
         );
 
-        res.json({ success: true, message: 'Berhasil diunggah ke Drive dan disimpan di MySQL!' });
+        res.json({ success: true, message: 'Upload berhasil!' });
     } catch (err) {
         console.error("Upload Error:", err);
         res.status(500).json({ error: err.message });
@@ -155,7 +187,6 @@ app.post('/api/contracts', async (req, res) => {
     }
 });
 
-// --- SERVE FRONTEND (DIST FOLDER) ---
 const distPath = path.resolve(__dirname, 'dist');
 app.use(express.static(distPath));
 
@@ -167,5 +198,4 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di port ${PORT}`);
-    console.log(`📂 Menyajikan file dari: ${distPath}`);
 });
