@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Contract } from '../types';
 import { uploadContractToGoogle, updateContractStatus } from '../services/googleService';
-import { FileSignature, Plus, Search, Trash2, CheckCircle, Upload, Loader2, X, Check, Eye } from 'lucide-react';
+import { FileSignature, Plus, Search, Trash2, CheckCircle, Upload, Loader2, X, Check, Eye, ZoomIn, RotateCw } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 interface Props {
@@ -264,7 +264,6 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
         }
     };
 
-    // Filter dengan proteksi null-check agar tidak blank/crash
     const filteredContracts = Array.isArray(contracts) ? contracts.filter(c => {
         const name = c.artistName || '';
         const num = c.contractNumber || '';
@@ -432,23 +431,82 @@ export const Contracts: React.FC<Props> = ({ activeTab, contracts = [], setContr
 
             {cropModalOpen && cropImageSrc && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
-                    <div className="bg-white rounded-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden">
+                    <div className="bg-white rounded-2xl w-full max-w-3xl h-[85vh] flex flex-col overflow-hidden animate-fade-in">
                         <div className="relative flex-1 bg-slate-900">
                             <Cropper
                                 image={cropImageSrc} 
                                 crop={crop} 
                                 zoom={zoom} 
                                 rotation={rotation}
-                                aspect={cropTargetField === 'signatureFile' ? 3/2 : 4/3}
+                                aspect={
+                                    cropTargetField === 'signatureFile' 
+                                    ? 3 / 1 // Aspect ratio untuk tanda tangan lebih lebar
+                                    : 8.56 / 5.398 // Standar ID Card: 8.56 cm x 5.398 cm (~1.585)
+                                }
                                 onCropChange={setCrop} 
                                 onCropComplete={onCropComplete}
                                 onZoomChange={setZoom} 
                                 onRotationChange={setRotation}
                             />
                         </div>
-                        <div className="p-4 bg-white border-t flex justify-end gap-3">
-                            <button onClick={() => setCropModalOpen(false)} className="px-6 py-2 font-bold text-slate-500">Batal</button>
-                            <button onClick={handleCropSave} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold">Simpan Potongan</button>
+                        {/* Controls Toolbar */}
+                        <div className="bg-white p-6 border-t border-gray-100 flex flex-col gap-4">
+                            <div className="flex flex-col md:flex-row items-center gap-6">
+                                <div className="flex-1 w-full space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider">
+                                            <ZoomIn size={14} /> Zoom
+                                        </label>
+                                        <span className="text-[10px] font-mono text-slate-400">{zoom.toFixed(1)}x</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        value={zoom}
+                                        min={1}
+                                        max={3}
+                                        step={0.1}
+                                        onChange={(e) => setZoom(Number(e.target.value))}
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    />
+                                </div>
+                                <div className="flex-1 w-full space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold text-slate-500 flex items-center gap-2 uppercase tracking-wider">
+                                            <RotateCw size={14} /> Rotasi
+                                        </label>
+                                        <span className="text-[10px] font-mono text-slate-400">{rotation}°</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        value={rotation}
+                                        min={0}
+                                        max={360}
+                                        step={1}
+                                        onChange={(e) => setRotation(Number(e.target.value))}
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                    />
+                                </div>
+                            </div>
+                            
+                            <div className="flex justify-between items-center mt-2">
+                                <p className="text-[10px] text-slate-400 italic">Geser dan atur gambar agar sesuai dengan bingkai ID Card.</p>
+                                <div className="flex gap-3">
+                                    <button 
+                                        onClick={() => setCropModalOpen(false)} 
+                                        className="px-6 py-2.5 font-bold text-slate-500 hover:bg-slate-50 rounded-xl transition-colors text-sm"
+                                    >
+                                        Batal
+                                    </button>
+                                    <button 
+                                        onClick={handleCropSave} 
+                                        disabled={isProcessingCrop}
+                                        className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all flex items-center gap-2 text-sm"
+                                    >
+                                        {isProcessingCrop ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                                        Simpan Potongan
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
