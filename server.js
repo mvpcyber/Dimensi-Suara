@@ -12,14 +12,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Plesk biasanya memberikan port via environment variable
 const PORT = process.env.PORT || 5000;
 
 app.use(cors());
 app.use(express.json());
 
 // --- DATABASE CONNECTION ---
-// Mengambil dari Environment Variables Plesk sesuai screenshot Anda
 const dbConfig = {
     host: process.env.DB_HOST || '127.0.0.1',
     user: process.env.DB_USER || 'dimensi_suara_db',
@@ -35,7 +33,6 @@ const db = mysql.createPool(dbConfig);
 
 // --- GOOGLE AUTH ---
 async function getGoogleAuth() {
-    // Mencari di beberapa lokasi umum Plesk
     const possiblePaths = [
         path.join(__dirname, 'service-account.json'),
         path.join(process.cwd(), 'service-account.json'),
@@ -61,31 +58,32 @@ async function getGoogleAuth() {
 
     const auth = new google.auth.GoogleAuth({ 
         credentials, 
-        scopes: ['https://www.googleapis.com/auth/drive.file'] 
+        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive.readonly'] 
     });
     
     return { auth, foundPath };
 }
 
-// --- API ROUTES (Wajib di atas Static Files) ---
+// --- API ROUTES ---
 
 app.get('/api/health-check', async (req, res) => {
-    console.log('Health check requested');
     const status = {
         database: { connected: false, message: 'Menghubungkan...' },
-        googleDrive: { connected: false, message: 'Menunggu...', email: '' },
+        googleDrive: { connected: false, message: 'Menunggu...', email: '', suggestion: '' },
         fileSystem: { serviceAccountExists: false, pathChecked: '' },
         serverTime: new Date().toISOString()
     };
 
+    // 1. Cek MySQL
     try {
         const [rows] = await db.query('SELECT 1 as ok');
         status.database.connected = true;
-        status.database.message = `Terhubung ke MySQL (${dbConfig.host})`;
+        status.database.message = `Koneksi MySQL Berhasil (127.0.0.1)`;
     } catch (err) {
         status.database.message = `MySQL Error: ${err.message}`;
     }
 
+    // 2. Cek Auth & Drive
     const { auth, foundPath } = await getGoogleAuth();
     status.fileSystem.serviceAccountExists = !!auth;
     status.fileSystem.pathChecked = foundPath;
@@ -96,16 +94,33 @@ app.get('/api/health-check', async (req, res) => {
             const creds = await auth.getCredentials();
             status.googleDrive.email = creds.client_email;
 
-            const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+            // Bersihkan folderId dari spasi yang mungkin terbawa di Plesk
+            const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || '').trim();
+            
             if (folderId) {
-                const folder = await drive.files.get({ fileId: folderId });
-                status.googleDrive.connected = true;
-                status.googleDrive.message = `Drive OK: ${folder.data.name}`;
+                try {
+                    const folder = await drive.files.get({ 
+                        fileId: folderId,
+                        fields: 'id, name'
+                    });
+                    status.googleDrive.connected = true;
+                    status.googleDrive.message = `Terhubung ke Folder: "${folder.data.name}"`;
+                } catch (driveErr) {
+                    if (driveErr.message.includes('not found')) {
+                        status.googleDrive.message = `Error 404: Folder tidak terlihat oleh Service Account.`;
+                        status.googleDrive.suggestion = "Pastikan Google Drive API sudah di-ENABLE di Google Cloud Console dan email di bawah sudah diundang sebagai EDITOR ke folder tersebut.";
+                    } else if (driveErr.message.includes('API has not been used')) {
+                        status.googleDrive.message = "Google Drive API Belum Aktif.";
+                        status.googleDrive.suggestion = "Buka Google Cloud Console, pilih project Anda, lalu aktifkan 'Google Drive API'.";
+                    } else {
+                        status.googleDrive.message = `Drive API Error: ${driveErr.message}`;
+                    }
+                }
             } else {
-                status.googleDrive.message = 'ID Folder Drive belum diatur di Plesk.';
+                status.googleDrive.message = 'GOOGLE_DRIVE_FOLDER_ID kosong di Plesk.';
             }
         } catch (err) {
-            status.googleDrive.message = `Drive API Error: ${err.message}`;
+            status.googleDrive.message = `Auth Error: ${err.message}`;
         }
     } else {
         status.googleDrive.message = 'File service-account.json tidak ditemukan.';
@@ -132,27 +147,21 @@ app.get('/api/contracts', async (req, res) => {
     }
 });
 
-// --- SERVE FRONTEND (STATIC) ---
 const distPath = path.resolve(__dirname, 'dist');
-
-// Pastikan rute API tidak masuk ke catch-all index.html
 app.use(express.static(distPath));
 
 app.get('*', (req, res) => {
-    // Jika path diawali /api tapi tidak cocok dengan rute di atas, beri JSON 404, bukan HTML
     if (req.path.startsWith('/api')) {
         return res.status(404).json({ error: `API endpoint ${req.path} tidak ditemukan.` });
     }
-    // Kirim index.html untuk rute frontend (SPA)
     const indexPath = path.join(distPath, 'index.html');
     if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
-        res.status(404).send('Build frontend tidak ditemukan. Jalankan npm run build.');
+        res.status(404).send('Build frontend tidak ditemukan.');
     }
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di port ${PORT}`);
-    console.log(`📂 Document Root: ${distPath}`);
 });

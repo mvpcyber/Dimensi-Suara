@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, AlertTriangle, RefreshCw, Copy } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, Trash2, Globe, Activity, CheckCircle, XCircle, Loader2, AlertTriangle, RefreshCw, Copy, ExternalLink, HelpCircle } from 'lucide-react';
 import { checkSystemHealth } from '../services/googleService';
 
 interface Props {
@@ -110,8 +110,29 @@ export const Settings: React.FC<Props> = ({ aggregators, setAggregators }) => {
                             )}
                             <div className="flex-1">
                                 <h4 className="font-bold text-slate-700 text-sm">Google Drive Access</h4>
-                                <p className="text-xs text-slate-500 mt-1">{healthStatus?.googleDrive.message || 'Mengecek status...'}</p>
+                                <p className={`text-xs mt-1 ${healthStatus?.googleDrive.connected ? 'text-slate-500' : 'text-red-500 font-bold'}`}>
+                                    {healthStatus?.googleDrive.message || 'Mengecek status...'}
+                                </p>
                                 
+                                {healthStatus?.googleDrive.suggestion && (
+                                    <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl">
+                                        <div className="flex items-center gap-2 text-red-700 font-bold text-xs mb-2">
+                                            <HelpCircle size={14} /> Solusi Error:
+                                        </div>
+                                        <p className="text-[11px] text-red-600 leading-relaxed mb-3">
+                                            {healthStatus.googleDrive.suggestion}
+                                        </p>
+                                        <a 
+                                            href="https://console.cloud.google.com/apis/library/drive.googleapis.com" 
+                                            target="_blank" 
+                                            rel="noreferrer"
+                                            className="inline-flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:underline"
+                                        >
+                                            Aktifkan Google Drive API <ExternalLink size={10} />
+                                        </a>
+                                    </div>
+                                )}
+
                                 {healthStatus?.googleDrive.email && (
                                     <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
                                         <p className="text-[10px] font-bold text-blue-600 uppercase mb-1">Email Service Account:</p>
